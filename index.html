@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Elterngespräche organisieren</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #fff; --ink: #1c2330; --muted: #5d6677; --line: #d9dde5;
+    --accent: #1f5fbf; --accent-ink: #fff; --warn: #b42318; --warn-bg: #fdecea; --ok-bg: #e8f5ec; --ok: #1b6b34;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); }
+  main { max-width: 980px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.5rem; margin: 8px 0 4px; }
+  h2 { font-size: 1.1rem; margin: 0 0 10px; }
+  .lead { color: var(--muted); margin: 0 0 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .step { display: inline-block; background: var(--accent); color: var(--accent-ink); border-radius: 50%; width: 1.6em; height: 1.6em; text-align: center; line-height: 1.6em; font-size: .9rem; margin-right: 6px; }
+  label { display: block; font-size: .85rem; color: var(--muted); margin-bottom: 2px; }
+  input, select, textarea { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); max-width: 100%; }
+  input[type=number] { width: 5.5em; }
+  textarea { width: 100%; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .85rem; }
+  button { font: inherit; padding: 7px 12px; border-radius: 6px; border: 1px solid var(--line); background: #fff; cursor: pointer; }
+  button:hover { background: #eef1f6; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  button.primary:hover { background: #184d9b; }
+  button.danger { color: var(--warn); }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 10px; }
+  .days .row { padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: #fafbfc; }
+  .hint { color: var(--muted); font-size: .85rem; margin: 4px 0; }
+  .msg { padding: 8px 10px; border-radius: 6px; margin: 8px 0; font-size: .9rem; }
+  .msg.warn { background: var(--warn-bg); color: var(--warn); }
+  .msg.ok { background: var(--ok-bg); color: var(--ok); }
+  .drop { border: 2px dashed var(--line); border-radius: 10px; padding: 18px; text-align: center; color: var(--muted); }
+  .drop.over { border-color: var(--accent); background: #eef4fd; }
+  table.data { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  table.data th, table.data td { border-bottom: 1px solid var(--line); padding: 4px 6px; text-align: left; vertical-align: middle; }
+  table.data input[type=text] { width: 100%; }
+  table.data tr.dayhead td { background: #eef1f6; font-weight: 600; }
+  .badge { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: .75rem; background: var(--warn-bg); color: var(--warn); margin-left: 4px; }
+  .scroll { overflow-x: auto; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+
+  /* Aushang (Bildschirm-Vorschau und Druck) */
+  #sheet { width: 190mm; background: #fff; color: #000; margin: 10px auto 0; padding: 0; font-family: Arial, Helvetica, sans-serif; border: 1px dashed var(--line); overflow: hidden; }
+  #sheet h1 { font-size: 1.6em; margin: 0 0 .4em; padding-bottom: .2em; border-bottom: 2px solid #000; }
+  #sheet table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  #sheet th, #sheet td { border: 1px solid #000; padding: .22em .5em; text-align: left; height: 1.7em; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  #sheet th { background: #e6e6e6; }
+  #sheet td.day { background: #f0f0f0; font-weight: bold; }
+  #sheet col.c1 { width: 24%; } #sheet col.c2 { width: 46%; } #sheet col.c3 { width: 30%; }
+
+  @page { size: A4 portrait; margin: 10mm; }
+  @media print {
+    html, body { background: #fff; height: auto; }
+    .noprint { display: none !important; }
+    main { padding: 0; max-width: none; }
+    .card { border: 0; padding: 0; margin: 0; background: none; }
+    #sheet { border: 0; margin: 0; width: 190mm; max-height: 275mm; page-break-after: avoid; break-after: avoid; }
+    #sheet tr { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header class="noprint">
+    <h1>Elterngespräche organisieren</h1>
+    <p class="lead">Slots erzeugen, ins Formular kopieren, Antworten hochladen, Aushang drucken. Alle Daten bleiben in diesem Browser.</p>
+  </header>
+
+  <!-- 1. Konfiguration -->
+  <section class="card noprint" id="cfg">
+    <h2><span class="step">1</span>Termine und Slots</h2>
+    <div class="row">
+      <div><label for="klasse">Klasse / Bezeichnung (für den Aushang)</label><input id="klasse" type="text" size="22" placeholder="z. B. Klasse 9b"></div>
+      <div><label for="slotLen">Slot-Länge (Min.)</label><input id="slotLen" type="number" min="5" max="120" step="1"></div>
+      <div><label for="buffer">Pause dazwischen (Min.)</label><input id="buffer" type="number" min="0" max="60" step="1"></div>
+      <div><label for="maxPerDay">Max. Termine pro Tag (0 = kein Limit)</label><input id="maxPerDay" type="number" min="0" max="99" step="1"></div>
+    </div>
+    <div class="days" id="days"></div>
+    <div class="toolbar"><button id="addDay">+ Tag hinzufügen</button></div>
+    <div id="slotInfo"></div>
+  </section>
+
+  <!-- 2. Export -->
+  <section class="card noprint">
+    <h2><span class="step">2</span>Slots fürs Formular</h2>
+    <p class="hint">Im Formular eine Frage „Terminwunsch“ (Auswahl oder Dropdown) anlegen und die Zeilen als Optionen einfügen. Google Forms: Optionen einfügen mit Strg+V in das erste Optionsfeld. Microsoft Forms: „Optionen im Stapel einfügen“ im Menü der Frage.</p>
+    <div class="toolbar" style="margin:0 0 8px"><button class="primary" id="copySlots">Slots für Formular kopieren</button><span id="copyMsg" class="hint"></span></div>
+    <textarea id="slotText" rows="6" readonly></textarea>
+  </section>
+
+  <!-- 3. Import -->
+  <section class="card noprint">
+    <h2><span class="step">3</span>Antworten importieren</h2>
+    <div class="drop" id="drop">CSV- oder Excel-Datei hierher ziehen oder <label style="display:inline;color:var(--accent);cursor:pointer;text-decoration:underline">Datei wählen<input id="file" type="file" accept=".csv,.tsv,.txt,.xlsx,.xls" hidden></label></div>
+    <p class="hint">Oder CSV-Text einfügen (inklusive Kopfzeile):</p>
+    <textarea id="paste" rows="3" placeholder="Zeitstempel;Name des Kindes;Name der Eltern;Terminwunsch"></textarea>
+    <div class="toolbar"><button id="applyPaste">Eingefügten Text auswerten</button><button id="clearImport" class="danger">Antworten löschen</button></div>
+    <div id="importMsg"></div>
+    <div id="mapping"></div>
+    <div id="problems"></div>
+  </section>
+
+  <!-- 4. Zuordnung bearbeiten -->
+  <section class="card noprint">
+    <h2><span class="step">4</span>Zuordnung prüfen und ergänzen</h2>
+    <p class="hint">Namen und Notizen lassen sich hier direkt ändern. Änderungen erscheinen sofort im Aushang.</p>
+    <div class="scroll"><table class="data" id="assign"></table></div>
+  </section>
+
+  <!-- 5. Aushang -->
+  <section class="card" id="sheetCard">
+    <div class="noprint">
+      <h2><span class="step">5</span>Aushang</h2>
+      <div class="toolbar" style="margin:0 0 6px"><button class="primary" id="printBtn">Aushang drucken</button></div>
+      <p class="hint">Der Aushang passt automatisch auf eine A4-Seite. Im Druckdialog „Kopf- und Fußzeilen“ ausschalten und Hochformat wählen.</p>
+    </div>
+    <div id="sheet"></div>
+  </section>
+
+  <footer class="noprint hint" style="text-align:center;margin-bottom:24px">
+    <button id="resetAll" class="danger">Alles zurücksetzen</button>
+  </footer>
+</main>
+
+<script>
+(function () {
+  'use strict';
+  var KEY = 'elterngespraeche-v1';
+  var WD = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+  var WDLONG = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+
+  function defaults() {
+    return {
+      klasse: '', slotLen: 15, buffer: 0, maxPerDay: 0,
+      days: [{ date: '', start: '16:00', end: '19:30' }],
+      table: null,          // { headers: [], rows: [[]] }
+      map: { name: -1, extra: -1, slot: -1, ts: -1 },
+      manual: {},           // Antwort-ID -> Slot-Key | 'skip'
+      names: {},            // Slot-Key -> Name (überschrieben)
+      notes: {}             // Slot-Key -> Notiz
+    };
+  }
+  var S = load();
+
+  function load() {
+    try {
+      var raw = localStorage.getItem(KEY);
+      if (raw) return Object.assign(defaults(), JSON.parse(raw));
+    } catch (e) {}
+    return defaults();
+  }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function toMin(t) { var m = /^(\d{1,2}):(\d{2})$/.exec(t || ''); return m ? +m[1] * 60 + +m[2] : null; }
+  function fromMin(m) { return pad(Math.floor(m / 60)) + ':' + pad(m % 60); }
+  function dparts(iso) { var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || ''); return m ? { y: +m[1], m: +m[2], d: +m[3] } : null; }
+  function wd(iso) { var p = dparts(iso); return p ? new Date(p.y, p.m - 1, p.d).getDay() : null; }
+  function shortDate(iso) { var p = dparts(iso); return p ? pad(p.d) + '.' + pad(p.m) + '.' : ''; }
+  function longDate(iso) { var p = dparts(iso); return p ? WDLONG[wd(iso)] + ', ' + pad(p.d) + '.' + pad(p.m) + '.' + p.y : ''; }
+
+  /* ---------- Slots ---------- */
+  function genSlots() {
+    var slots = [], len = Math.max(1, +S.slotLen || 15), buf = Math.max(0, +S.buffer || 0), max = Math.max(0, +S.maxPerDay || 0);
+    var info = [];
+    S.days.forEach(function (day, di) {
+      var a = toMin(day.start), b = toMin(day.end);
+      if (!dparts(day.date) || a == null || b == null) { return; }
+      var n = 0, possible = 0, t;
+      for (t = a; t + len <= b; t += len + buf) { possible++; }
+      for (t = a; t + len <= b && (!max || n < max); t += len + buf) {
+        slots.push({ key: day.date + '|' + fromMin(t), date: day.date, start: fromMin(t), end: fromMin(t + len), day: di,
+          label: WD[wd(day.date)] + ' ' + shortDate(day.date) + ', ' + fromMin(t) + '–' + fromMin(t + len) + ' Uhr' });
+        n++;
+      }
+      info.push({ date: day.date, n: n, possible: possible });
+    });
+    slots.sort(function (x, y) { return x.key < y.key ? -1 : x.key > y.key ? 1 : 0; });
+    slots.info = info;
+    return slots;
+  }
+
+  /* ---------- Import-Parser ---------- */
+  function parseCSV(text) {
+    text = String(text).replace(/^﻿/, '');
+    var first = text.split(/\r?\n/)[0] || '', q = false, cnt = { ';': 0, ',': 0, '\t': 0 }, i, c;
+    for (i = 0; i < first.length; i++) { c = first[i]; if (c === '"') q = !q; else if (!q && cnt[c] !== undefined) cnt[c]++; }
+    var delim = cnt[';'] >= cnt[','] && cnt[';'] >= cnt['\t'] ? ';' : (cnt['\t'] >= cnt[','] ? '\t' : ',');
+    if (!cnt[';'] && !cnt[','] && !cnt['\t']) delim = ';';
+    var rows = [], row = [], cell = '';
+    q = false;
+    for (i = 0; i < text.length; i++) {
+      c = text[i];
+      if (q) {
+        if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += c;
+      } else if (c === '"') q = true;
+      else if (c === delim) { row.push(cell); cell = ''; }
+      else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+      else cell += c;
+    }
+    if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+    return rows.filter(function (r) { return r.some(function (x) { return String(x).trim() !== ''; }); });
+  }
+
+  function setTable(rows) {
+    if (!rows.length) throw new Error('Keine Zeilen gefunden.');
+    var width = Math.max.apply(null, rows.map(function (r) { return r.length; }));
+    rows = rows.map(function (r) { r = r.map(function (x) { return String(x == null ? '' : x).trim(); }); while (r.length < width) r.push(''); return r; });
+    S.table = { headers: rows[0], rows: rows.slice(1) };
+    S.manual = {}; S.names = {}; S.notes = {};
+    S.map = detect(S.table);
+    save();
+  }
+
+  function detect(t) {
+    var slots = genSlots(), map = { name: -1, extra: -1, slot: -1, ts: -1 }, h = t.headers, n = h.length, j;
+    function find(re, skip) { for (var k = 0; k < n; k++) if (skip.indexOf(k) < 0 && re.test(h[k])) return k; return -1; }
+    map.ts = find(/zeitstempel|timestamp|abschlusszeit|fertigstellung|startzeit|completion|start time/i, []);
+    var best = 0;
+    for (j = 0; j < n; j++) {
+      if (j === map.ts) continue;
+      var score = t.rows.filter(function (r) { return parseSlotText(r[j], slots) !== null || /\d{1,2}\.\d{1,2}\.?.*\d{1,2}[:.]\d{2}/.test(r[j]); }).length;
+      if (score > best) { best = score; map.slot = j; }
+    }
+    if (map.slot < 0) map.slot = find(/termin|slot|zeit|uhr/i, [map.ts]);
+    var skip = [map.ts, map.slot];
+    map.name = find(/sch(ü|ue)ler|kind/i, skip);
+    if (map.name < 0) map.name = find(/name/i, skip);
+    if (map.name < 0) for (j = 0; j < n; j++) if (skip.indexOf(j) < 0) { map.name = j; break; }
+    map.extra = find(/eltern|mutter|vater|erziehung/i, skip.concat([map.name]));
+    return map;
+  }
+
+  function parseTs(s) {
+    s = String(s || '').trim(); if (!s) return NaN;
+    var m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})[ T,]*(\d{1,2})?:?(\d{2})?:?(\d{2})?/.exec(s);
+    if (m) return new Date(+m[3], +m[2] - 1, +m[1], +m[4] || 0, +m[5] || 0, +m[6] || 0).getTime();
+    m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})[ T,]*(\d{1,2})?:?(\d{2})?:?(\d{2})?\s*(AM|PM)?/i.exec(s);
+    if (m) { var h = +m[4] || 0; if (m[7]) { h = h % 12 + (/pm/i.test(m[7]) ? 12 : 0); } return new Date(+m[3], +m[1] - 1, +m[2], h, +m[5] || 0, +m[6] || 0).getTime(); }
+    var d = Date.parse(s.replace(' ', 'T')); return isNaN(d) ? NaN : d;
+  }
+
+  function parseSlotText(text, slots) {
+    text = String(text || ''); if (!text.trim()) return null;
+    var exact = slots.filter(function (s) { return s.label === text.trim(); });
+    if (exact.length) return exact[0].key;
+    var dm = /(\d{1,2})\.\s?(\d{1,2})\./.exec(text), rest = dm ? text.replace(dm[0], ' ') : text;
+    var tm = /(\d{1,2})\s?[:h.]\s?(\d{2})/.exec(rest);
+    if (!tm) return null;
+    var start = pad(+tm[1]) + ':' + tm[2];
+    var cands = slots.filter(function (s) { return s.start === start && (!dm || shortDate(s.date) === pad(+dm[1]) + '.' + pad(+dm[2]) + '.'); });
+    if (!dm) { var dates = {}; slots.forEach(function (s) { dates[s.date] = 1; }); if (Object.keys(dates).length > 1) return null; }
+    return cands.length ? cands[0].key : null;
+  }
+
+  /* ---------- Zuordnung ---------- */
+  function compute() {
+    var slots = genSlots(), keys = {}, res = { slots: slots, assign: {}, conflicts: [], unmatched: [], skipped: 0, names: {}, total: 0 };
+    slots.forEach(function (s) { keys[s.key] = s; });
+    if (!S.table) return res;
+    var m = S.map, resp = [];
+    S.table.rows.forEach(function (r, i) {
+      var name = m.name >= 0 ? r[m.name] : '', extra = m.extra >= 0 ? r[m.extra] : '', st = m.slot >= 0 ? r[m.slot] : '';
+      if (!name && !extra && !st) return;
+      resp.push({ id: String(i), order: i, ts: m.ts >= 0 ? parseTs(r[m.ts]) : NaN, name: name, extra: extra, slotText: st });
+    });
+    res.total = resp.length;
+    function disp(r) { return r.name + (r.extra ? ' (' + r.extra + ')' : ''); }
+    resp.forEach(function (r) { r.disp = disp(r); var k = r.name.toLowerCase(); if (k) res.names[k] = (res.names[k] || 0) + 1; });
+    resp.sort(function (a, b) { if (!isNaN(a.ts) && !isNaN(b.ts) && a.ts !== b.ts) return a.ts - b.ts; return a.order - b.order; });
+    var manual = [], auto = [];
+    resp.forEach(function (r) {
+      var mv = S.manual[r.id];
+      if (mv === 'skip') { res.skipped++; return; }
+      if (mv && keys[mv]) { r.target = mv; manual.push(r); return; }
+      r.target = parseSlotText(r.slotText, slots);
+      if (!r.target) { r.reason = r.slotText ? 'Slot nicht erkannt oder nicht im Plan (Limit pro Tag oder Zeitraum)' : 'Kein Slot angegeben'; res.unmatched.push(r); return; }
+      auto.push(r);
+    });
+    manual.concat(auto).forEach(function (r) {
+      if (res.assign[r.target]) res.conflicts.push({ resp: r, target: r.target, takenBy: res.assign[r.target] });
+      else res.assign[r.target] = r;
+    });
+    return res;
+  }
+
+  /* ---------- Rendering ---------- */
+  function renderDays() {
+    var h = '';
+    S.days.forEach(function (d, i) {
+      h += '<div class="row" data-i="' + i + '">' +
+        '<div><label>Tag</label><input type="date" data-f="date" value="' + esc(d.date) + '"></div>' +
+        '<div><label>Von</label><input type="time" data-f="start" value="' + esc(d.start) + '"></div>' +
+        '<div><label>Bis</label><input type="time" data-f="end" value="' + esc(d.end) + '"></div>' +
+        (S.days.length > 1 ? '<button data-del="' + i + '" class="danger" title="Tag entfernen">Entfernen</button>' : '') + '</div>';
+    });
+    $('days').innerHTML = h;
+  }
+
+  function renderSlots() {
+    var slots = genSlots(), info = slots.info, h = '';
+    info.forEach(function (x) {
+      h += '<div class="hint">' + esc(longDate(x.date)) + ': ' + x.n + ' Slots' + (x.possible > x.n ? ' (Zeitfenster böte Platz für ' + x.possible + ', begrenzt auf ' + x.n + ')' : '') + '</div>';
+    });
+    var bad = S.days.filter(function (d) { return !dparts(d.date) || toMin(d.start) == null || toMin(d.end) == null || toMin(d.end) <= toMin(d.start); });
+    if (bad.length) h += '<div class="msg warn">Bitte bei jedem Tag Datum, Von und Bis eintragen (Ende nach Beginn).</div>';
+    h += '<div class="hint"><strong>Gesamt: ' + slots.length + ' Slots</strong></div>';
+    $('slotInfo').innerHTML = h;
+    $('slotText').value = slots.map(function (s) { return s.label; }).join('\n');
+  }
+
+  function renderImport(c) {
+    var t = S.table, h = '';
+    if (!t) { $('mapping').innerHTML = ''; $('problems').innerHTML = ''; return; }
+    function sel(field, label, optional) {
+      var o = optional ? '<option value="-1">(keine)</option>' : '';
+      t.headers.forEach(function (x, i) { o += '<option value="' + i + '"' + (S.map[field] === i ? ' selected' : '') + '>' + esc(x || 'Spalte ' + (i + 1)) + '</option>'; });
+      return '<div><label>' + label + '</label><select data-map="' + field + '">' + o + '</select></div>';
+    }
+    h += '<div class="row" style="margin-top:10px">' + sel('name', 'Schülername', false) + sel('extra', 'Eltern (optional)', true) + sel('slot', 'Gewählter Slot', false) + sel('ts', 'Zeitstempel (optional)', true) + '</div>';
+    $('mapping').innerHTML = h;
+
+    var assigned = Object.keys(c.assign).length, p = '';
+    p += '<div class="msg ' + (c.conflicts.length || c.unmatched.length ? 'warn' : 'ok') + '">' + c.total + ' Antworten, ' + assigned + ' zugeordnet' +
+      (c.conflicts.length ? ', ' + c.conflicts.length + ' Konflikt(e)' : '') + (c.unmatched.length ? ', ' + c.unmatched.length + ' nicht zuordenbar' : '') +
+      (c.skipped ? ', ' + c.skipped + ' verworfen' : '') + '.</div>';
+    var free = c.slots.filter(function (s) { return !c.assign[s.key]; });
+    function opts() {
+      return '<option value="">Slot wählen …</option>' + free.map(function (s) { return '<option value="' + esc(s.key) + '">' + esc(s.label) + '</option>'; }).join('') + '<option value="skip">Verwerfen</option>';
+    }
+    if (c.conflicts.length || c.unmatched.length) {
+      p += '<div class="scroll"><table class="data"><tr><th>Name</th><th>Problem</th><th>Neu zuweisen</th></tr>';
+      c.conflicts.forEach(function (x) {
+        var s = c.slots.filter(function (z) { return z.key === x.target; })[0];
+        p += '<tr><td>' + esc(x.resp.disp) + '</td><td>Slot ' + esc(s.label) + ' doppelt gewählt, bereits vergeben an ' + esc(x.takenBy.disp) + '</td><td><select data-resolve="' + esc(x.resp.id) + '">' + opts() + '</select></td></tr>';
+      });
+      c.unmatched.forEach(function (r) {
+        p += '<tr><td>' + esc(r.disp) + '</td><td>' + esc(r.reason) + (r.slotText ? ': „' + esc(r.slotText) + '“' : '') + '</td><td><select data-resolve="' + esc(r.id) + '">' + opts() + '</select></td></tr>';
+      });
+      p += '</table></div>';
+    }
+    $('problems').innerHTML = p;
+  }
+
+  function slotName(c, key) {
+    if (Object.prototype.hasOwnProperty.call(S.names, key)) return S.names[key];
+    return c.assign[key] ? c.assign[key].disp : '';
+  }
+
+  function renderAssign(c) {
+    var h = '<tr><th style="width:24%">Zeit</th><th>Schülername / Eltern</th><th style="width:30%">Notizen / Status</th></tr>', last = -1;
+    if (!c.slots.length) h += '<tr><td colspan="3" class="hint">Noch keine Slots. Bitte oben Tag und Zeiten eintragen.</td></tr>';
+    c.slots.forEach(function (s) {
+      if (s.day !== last) { h += '<tr class="dayhead"><td colspan="3">' + esc(longDate(s.date)) + '</td></tr>'; last = s.day; }
+      var r = c.assign[s.key], dup = r && r.name && c.names[r.name.toLowerCase()] > 1;
+      h += '<tr><td>' + s.start + ' – ' + s.end + '</td><td><input type="text" data-name="' + esc(s.key) + '" value="' + esc(slotName(c, s.key)) + '">' +
+        (dup ? '<span class="badge">mehrfach angemeldet</span>' : '') + '</td><td><input type="text" data-note="' + esc(s.key) + '" value="' + esc(S.notes[s.key] || '') + '"></td></tr>';
+    });
+    $('assign').innerHTML = h;
+  }
+
+  function dateRange() {
+    var ds = S.days.map(function (d) { return dparts(d.date) ? d.date : ''; }).filter(Boolean).sort();
+    ds = ds.filter(function (d, i) { return ds.indexOf(d) === i; });
+    if (!ds.length) return '';
+    var ys = {}; ds.forEach(function (d) { ys[dparts(d).y] = 1; });
+    if (Object.keys(ys).length === 1) return ds.map(shortDate).join(' / ').replace(/\.$/, '') + '.' + dparts(ds[0]).y;
+    return ds.map(function (d) { return shortDate(d) + dparts(d).y; }).join(' / ');
+  }
+
+  function renderSheet(c) {
+    var title = 'Elterngespräche – ' + [S.klasse.trim(), dateRange()].filter(Boolean).join(', ');
+    if (title === 'Elterngespräche – ') title = 'Elterngespräche';
+    var h = '<h1>' + esc(title) + '</h1><table><colgroup><col class="c1"><col class="c2"><col class="c3"></colgroup>' +
+      '<thead><tr><th>Uhrzeit</th><th>Schüler/in / Eltern</th><th>Notizen / Status</th></tr></thead><tbody>', last = -1;
+    c.slots.forEach(function (s) {
+      if (s.day !== last) { h += '<tr><td class="day" colspan="3">' + esc(longDate(s.date)) + '</td></tr>'; last = s.day; }
+      h += '<tr><td>' + s.start + ' – ' + s.end + '</td><td>' + esc(slotName(c, s.key)) + '</td><td>' + esc(S.notes[s.key] || '') + '</td></tr>';
+    });
+    $('sheet').innerHTML = h + '</tbody></table>';
+    fitSheet();
+  }
+
+  function fitSheet() {
+    var el = $('sheet'), probe = document.createElement('div');
+    probe.style.cssText = 'position:absolute;visibility:hidden;height:272mm;width:1px';
+    document.body.appendChild(probe);
+    var limit = probe.getBoundingClientRect().height;
+    document.body.removeChild(probe);
+    var size = 15;
+    el.style.maxHeight = 'none';
+    el.style.fontSize = size + 'px';
+    while (size > 5 && el.scrollHeight > limit) { size -= 0.5; el.style.fontSize = size + 'px'; }
+    el.style.maxHeight = '275mm';
+  }
+
+  function renderAll() {
+    var c = compute();
+    renderSlots(); renderImport(c); renderAssign(c); renderSheet(c);
+  }
+
+  /* ---------- Events ---------- */
+  $('klasse').value = S.klasse; $('slotLen').value = S.slotLen; $('buffer').value = S.buffer; $('maxPerDay').value = S.maxPerDay;
+  ['klasse', 'slotLen', 'buffer', 'maxPerDay'].forEach(function (id) {
+    $(id).addEventListener('input', function () {
+      S[id] = id === 'klasse' ? this.value : (+this.value || 0);
+      save(); id === 'klasse' ? renderSheet(compute()) : renderAll();
+    });
+  });
+  $('days').addEventListener('input', function (e) {
+    var row = e.target.closest('[data-i]'); if (!row || !e.target.dataset.f) return;
+    S.days[+row.dataset.i][e.target.dataset.f] = e.target.value; save(); renderAll();
+  });
+  $('days').addEventListener('click', function (e) {
+    if (e.target.dataset.del === undefined) return;
+    S.days.splice(+e.target.dataset.del, 1); save(); renderDays(); renderAll();
+  });
+  $('addDay').addEventListener('click', function () {
+    var l = S.days[S.days.length - 1] || { start: '16:00', end: '19:30' };
+    S.days.push({ date: '', start: l.start, end: l.end }); save(); renderDays(); renderAll();
+  });
+
+  function copyText(text, msgEl) {
+    function done(ok) { msgEl.textContent = ok ? 'In die Zwischenablage kopiert (' + text.split('\n').length + ' Zeilen).' : 'Kopieren nicht möglich. Bitte Text im Feld markieren und mit Strg+C kopieren.'; }
+    function fallback() {
+      var ta = $('slotText'); ta.focus(); ta.select();
+      var ok = false; try { ok = document.execCommand('copy'); } catch (e) {}
+      done(ok);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { done(true); }, fallback); else fallback();
+  }
+  $('copySlots').addEventListener('click', function () {
+    var t = $('slotText').value;
+    if (!t) { $('copyMsg').textContent = 'Keine Slots vorhanden.'; return; }
+    copyText(t, $('copyMsg'));
+  });
+
+  function importRows(rows) {
+    try { setTable(rows); $('importMsg').innerHTML = ''; renderAll(); }
+    catch (e) { $('importMsg').innerHTML = '<div class="msg warn">' + esc(e.message) + '</div>'; }
+  }
+  function loadScript(src) {
+    return new Promise(function (res, rej) { var s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = function () { rej(new Error('Excel-Bibliothek konnte nicht geladen werden (offline?). Bitte die Datei als CSV speichern.')); }; document.head.appendChild(s); });
+  }
+  function handleFile(f) {
+    if (!f) return;
+    if (/\.(xlsx|xls)$/i.test(f.name)) {
+      var fr = new FileReader();
+      fr.onload = function () {
+        var p = window.XLSX ? Promise.resolve() : loadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+        p.then(function () {
+          var wb = XLSX.read(fr.result, { type: 'array', cellDates: true });
+          var ws = wb.Sheets[wb.SheetNames[0]];
+          var rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, cellDates: true, defval: '' }).map(function (r) {
+            return r.map(function (v) {
+              if (v instanceof Date) return v.getFullYear() + '-' + pad(v.getMonth() + 1) + '-' + pad(v.getDate()) + ' ' + pad(v.getHours()) + ':' + pad(v.getMinutes()) + ':' + pad(v.getSeconds());
+              return v;
+            });
+          }).filter(function (r) { return r.some(function (x) { return String(x).trim() !== ''; }); });
+          importRows(rows);
+        }).catch(function (e) { $('importMsg').innerHTML = '<div class="msg warn">' + esc(e.message) + '</div>'; });
+      };
+      fr.readAsArrayBuffer(f);
+    } else {
+      var r = new FileReader();
+      r.onload = function () { importRows(parseCSV(r.result)); };
+      r.readAsText(f, 'utf-8');
+    }
+  }
+  $('file').addEventListener('change', function () { handleFile(this.files[0]); this.value = ''; });
+  var drop = $('drop');
+  ['dragenter', 'dragover'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('over'); }); });
+  ['dragleave', 'drop'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); }); });
+  drop.addEventListener('drop', function (e) { handleFile(e.dataTransfer.files[0]); });
+  window.addEventListener('dragover', function (e) { e.preventDefault(); });
+  window.addEventListener('drop', function (e) { e.preventDefault(); });
+  $('applyPaste').addEventListener('click', function () { var v = $('paste').value; if (v.trim()) importRows(parseCSV(v)); });
+  $('clearImport').addEventListener('click', function () {
+    S.table = null; S.manual = {}; S.names = {}; S.notes = {}; S.map = defaults().map; $('paste').value = ''; save(); renderAll();
+  });
+
+  $('mapping').addEventListener('change', function (e) {
+    var f = e.target.dataset.map; if (!f) return;
+    S.map[f] = +e.target.value; S.manual = {}; save(); renderAll();
+  });
+  $('problems').addEventListener('change', function (e) {
+    var id = e.target.dataset.resolve; if (id === undefined || !e.target.value) return;
+    S.manual[id] = e.target.value; save(); renderAll();
+  });
+  $('assign').addEventListener('input', function (e) {
+    var t = e.target;
+    if (t.dataset.name !== undefined) S.names[t.dataset.name] = t.value;
+    else if (t.dataset.note !== undefined) S.notes[t.dataset.note] = t.value;
+    else return;
+    save(); renderSheet(compute());
+  });
+
+  $('printBtn').addEventListener('click', function () {
+    var c = compute();
+    if ((c.conflicts.length || c.unmatched.length) && !confirm('Es gibt noch ' + (c.conflicts.length + c.unmatched.length) + ' ungelöste Anmeldung(en), die nicht im Aushang stehen. Trotzdem drucken?')) return;
+    fitSheet(); window.print();
+  });
+  window.addEventListener('beforeprint', fitSheet);
+
+  $('resetAll').addEventListener('click', function () {
+    if (!confirm('Alle Eingaben und importierten Antworten in diesem Browser löschen?')) return;
+    try { localStorage.removeItem(KEY); } catch (e) {}
+    S = defaults(); location.reload();
+  });
+
+  renderDays();
+  renderAll();
+})();
+</script>
+</body>
+</html>
