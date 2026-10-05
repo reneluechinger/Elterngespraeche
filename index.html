@@ -97,7 +97,7 @@
     <div class="drop" id="drop">CSV- oder Excel-Datei hierher ziehen oder <label style="display:inline;color:var(--accent);cursor:pointer;text-decoration:underline">Datei wählen<input id="file" type="file" accept=".csv,.tsv,.txt,.xlsx,.xls" hidden></label></div>
     <p class="hint">Oder CSV-Text einfügen (inklusive Kopfzeile):</p>
     <textarea id="paste" rows="3" placeholder="Zeitstempel;Name des Kindes;Name der Eltern;Terminwunsch"></textarea>
-    <div class="toolbar"><button id="applyPaste">Eingefügten Text auswerten</button><button id="clearImport" class="danger">Antworten löschen</button></div>
+    <div class="toolbar"><button id="applyPaste">Eingefügten Text auswerten</button><button id="demoData">Testdaten erzeugen (20 Beispiele)</button><button id="clearImport" class="danger">Antworten löschen</button></div>
     <div id="importMsg"></div>
     <div id="mapping"></div>
     <div id="problems"></div>
@@ -480,6 +480,19 @@
   window.addEventListener('dragover', function (e) { e.preventDefault(); });
   window.addEventListener('drop', function (e) { e.preventDefault(); });
   $('applyPaste').addEventListener('click', function () { var v = $('paste').value; if (v.trim()) importRows(parseCSV(v)); });
+  $('demoData').addEventListener('click', function () {
+    var slots = genSlots();
+    if (slots.length < 4) { $('importMsg').innerHTML = '<div class="msg warn">Bitte zuerst oben Tage und Zeiten eintragen.</div>'; return; }
+    var names = ['Lena Meier', 'Noah Keller', 'Mia Brunner', 'Elias Frei', 'Sara Gerber', 'Luca Huber', 'Emma Weber', 'Jonas Steiner', 'Anna Fischer', 'Leon Baumann', 'Lara Schmid', 'Finn Moser', 'Nina Roth', 'Tim Graf', 'Julia Wyss', 'David Berger', 'Alina Suter', 'Marco Widmer', 'Sophie Egger', 'Ben Zimmermann'];
+    var pool = slots.slice(), pick = [];
+    while (pick.length < 20) { if (!pool.length) pool = slots.slice(); pick.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0].label); }
+    pick[5] = pick[2]; pick[14] = pick[9];
+    var last = slots[slots.length - 1];
+    pick[17] = WD[wd(last.date)] + ' ' + shortDate(last.date) + ', ' + fromMin(toMin(last.end) + 60) + '–' + fromMin(toMin(last.end) + 75) + ' Uhr';
+    var rows = [['Zeitstempel', 'Name des Kindes', 'Name der Eltern', 'Terminwunsch']];
+    names.forEach(function (n, i) { rows.push(['05.11.2026 ' + pad(8 + Math.floor(i / 4)) + ':' + pad((i * 13) % 60) + ':00', n, 'Familie ' + n.split(' ')[1], pick[i]]); });
+    importRows(rows);
+  });
   $('clearImport').addEventListener('click', function () {
     S.table = null; S.manual = {}; S.names = {}; S.notes = {}; S.map = defaults().map; $('paste').value = ''; save(); renderAll();
   });
