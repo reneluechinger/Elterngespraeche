@@ -122,7 +122,7 @@
 
   <footer class="noprint hint" style="text-align:center;margin-bottom:24px">
     <button id="resetAll" class="danger">Alles zurücksetzen</button>
-    <div style="margin-top:8px">Version 1.1</div>
+    <div style="margin-top:8px">Version 1.2</div>
   </footer>
 </main>
 
@@ -335,6 +335,7 @@
       return '<option value="">Slot wählen …</option>' + free.map(function (s) { return '<option value="' + esc(s.key) + '">' + esc(s.label) + '</option>'; }).join('') + '<option value="skip">Verwerfen</option>';
     }
     if (c.conflicts.length || c.unmatched.length) {
+      p += '<div class="toolbar" style="margin:0 0 8px"><button class="primary" id="autoDist">Rest automatisch verteilen</button><span class="hint">Freier Slot am nächsten zur Wunschzeit, früher Antwortende zuerst.</span></div>';
       p += '<div class="scroll"><table class="data"><tr><th>Name</th><th>Problem</th><th>Neu zuweisen</th></tr>';
       c.conflicts.forEach(function (x) {
         var s = c.slots.filter(function (z) { return z.key === x.target; })[0];
@@ -505,6 +506,37 @@
   $('problems').addEventListener('change', function (e) {
     var id = e.target.dataset.resolve; if (id === undefined || !e.target.value) return;
     S.manual[id] = e.target.value; save(); renderAll();
+  });
+  function wishOf(text, slots) {
+    var dm = /(\d{1,2})\.\s?(\d{1,2})\./.exec(text || ''), rest = dm ? text.replace(dm[0], ' ') : String(text || '');
+    var tm = /(\d{1,2})\s?[:h.]\s?(\d{2})/.exec(rest);
+    if (!tm) return null;
+    var date = null;
+    if (dm) slots.forEach(function (s) { if (!date && shortDate(s.date) === pad(+dm[1]) + '.' + pad(+dm[2]) + '.') date = s.date; });
+    return { date: date, min: +tm[1] * 60 + +tm[2], label: (dm ? pad(+dm[1]) + '.' + pad(+dm[2]) + '. ' : '') + pad(+tm[1]) + ':' + tm[2] };
+  }
+  $('problems').addEventListener('click', function (e) {
+    if (e.target.id !== 'autoDist') return;
+    var c = compute(), slots = c.slots, free = slots.filter(function (s) { return !c.assign[s.key]; });
+    var todo = c.conflicts.map(function (x) { return { r: x.resp, wish: wishOf(x.resp.slotText, slots) }; })
+      .concat(c.unmatched.map(function (r) { return { r: r, wish: wishOf(r.slotText, slots) }; }));
+    todo.sort(function (a, b) { var x = a.r, y = b.r; if (!isNaN(x.ts) && !isNaN(y.ts) && x.ts !== y.ts) return x.ts - y.ts; return x.order - y.order; });
+    var done = 0, left = 0;
+    todo.forEach(function (t) {
+      if (!free.length) { left++; return; }
+      var w = t.wish, best = free[0];
+      if (w) {
+        var score = function (s) { return [w.date && s.date !== w.date ? 1 : 0, Math.abs(toMin(s.start) - w.min), toMin(s.start)]; };
+        best = free.slice().sort(function (a, b) { var x = score(a), y = score(b); return x[0] - y[0] || x[1] - y[1] || x[2] - y[2] || (a.key < b.key ? -1 : 1); })[0];
+        var note = 'verschoben, Wunsch war ' + w.label;
+        S.notes[best.key] = S.notes[best.key] ? S.notes[best.key] + '; ' + note : note;
+      }
+      S.manual[t.r.id] = best.key;
+      free.splice(free.indexOf(best), 1);
+      done++;
+    });
+    save(); renderAll();
+    $('importMsg').innerHTML = '<div class="msg ' + (left ? 'warn' : 'ok') + '">' + done + ' Anmeldung(en) verteilt' + (left ? ', ' + left + ' ohne freien Slot (Warteliste)' : '') + '. Bitte die mit „verschoben“ markierten Eltern informieren.</div>';
   });
   $('assign').addEventListener('input', function (e) {
     var t = e.target;
