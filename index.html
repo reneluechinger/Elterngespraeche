@@ -85,15 +85,45 @@
 
   <!-- 2. Export -->
   <section class="card noprint">
-    <h2><span class="step">2</span>Slots fürs Formular</h2>
+    <h2><span class="step">2</span>Alternative: Slots für Google Forms oder Microsoft Forms</h2>
     <p class="hint">Im Formular eine Frage „Terminwunsch“ (Auswahl oder Dropdown) anlegen und die Zeilen als Optionen einfügen. Google Forms: Optionen einfügen mit Strg+V in das erste Optionsfeld. Microsoft Forms: „Optionen im Stapel einfügen“ im Menü der Frage.</p>
     <div class="toolbar" style="margin:0 0 8px"><button class="primary" id="copySlots">Slots für Formular kopieren</button><span id="copyMsg" class="hint"></span></div>
     <textarea id="slotText" rows="6" readonly></textarea>
   </section>
 
+  <!-- 2b. Online-Anmeldung -->
+  <section class="card noprint" id="online">
+    <h2><span class="step">2</span>Online-Anmeldung über Google-Tabelle</h2>
+    <p class="hint">Eltern buchen über einen Link direkt einen freien Termin. Doppelbuchungen sind nicht möglich. Die Anmeldungen landen in deiner Google-Tabelle, und das Tool lädt sie mit einem Klick.</p>
+    <details id="gasSetup">
+      <summary><strong>Einmalige Einrichtung (ca. 10 Minuten)</strong></summary>
+      <ol class="hint" style="color:var(--ink)">
+        <li>Auf <a href="https://sheets.new" target="_blank" rel="noopener">sheets.new</a> eine neue Google-Tabelle anlegen und z. B. „Elterngespräche 9b“ nennen.</li>
+        <li>In der Tabelle oben <strong>Erweiterungen → Apps Script</strong> öffnen.</li>
+        <li>Den vorhandenen Code im Editor löschen. Hier auf <strong>„Code kopieren“</strong> klicken, im Editor einfügen und mit dem Disketten-Symbol speichern.</li>
+        <li>Oben rechts <strong>Bereitstellen → Neue Bereitstellung</strong>. Beim Zahnrad <strong>Web-App</strong> wählen. „Ausführen als“: <strong>Ich</strong>. „Zugriff“: <strong>Jeder</strong>. Dann <strong>Bereitstellen</strong>.</li>
+        <li>Google fragt nach Berechtigungen. Konto wählen, bei der Warnung auf <strong>Erweitert → Zu … wechseln (unsicher)</strong> und <strong>Zulassen</strong>. Die Warnung erscheint, weil das Skript von dir selbst stammt und nicht von Google geprüft ist.</li>
+        <li>Die angezeigte <strong>Web-App-URL</strong> (endet auf <code>/exec</code>) kopieren und unten einfügen.</li>
+      </ol>
+      <p class="hint">Fehlt bei „Zugriff“ die Option „Jeder“, erlaubt dein Schulkonto keine Links für Externe. Dann die Einrichtung mit einem privaten Google-Konto machen.</p>
+      <div class="toolbar" style="margin:0 0 8px"><button id="copyGas">Code kopieren</button><span id="gasCopyMsg" class="hint"></span></div>
+      <textarea id="gasText" rows="4" readonly></textarea>
+    </details>
+    <div class="row" style="margin-top:10px">
+      <div style="flex:1;min-width:240px"><label for="gasUrl">Web-App-URL</label><input id="gasUrl" type="text" style="width:100%" placeholder="https://script.google.com/macros/s/…/exec"></div>
+    </div>
+    <div class="toolbar">
+      <button class="primary" id="gasPublish">Termine veröffentlichen</button>
+      <button id="gasLink">Elternlink kopieren</button>
+      <button class="primary" id="gasLoad">Anmeldungen laden</button>
+      <button id="gasToggle">Anmeldung schliessen</button>
+    </div>
+    <div id="gasMsg"></div>
+  </section>
+
   <!-- 3. Import -->
   <section class="card noprint">
-    <h2><span class="step">3</span>Antworten importieren</h2>
+    <h2><span class="step">3</span>Antworten importieren (nur bei Forms)</h2>
     <div class="drop" id="drop">CSV- oder Excel-Datei hierher ziehen oder <label style="display:inline;color:var(--accent);cursor:pointer;text-decoration:underline">Datei wählen<input id="file" type="file" accept=".csv,.tsv,.txt,.xlsx,.xls" hidden></label></div>
     <p class="hint">Oder CSV-Text einfügen (inklusive Kopfzeile):</p>
     <textarea id="paste" rows="3" placeholder="Zeitstempel;Name des Kindes;Name der Eltern;Terminwunsch"></textarea>
@@ -122,10 +152,168 @@
 
   <footer class="noprint hint" style="text-align:center;margin-bottom:24px">
     <button id="resetAll" class="danger">Alles zurücksetzen</button>
-    <div style="margin-top:8px">Version 1.2</div>
+    <div style="margin-top:8px">Version 1.3</div>
   </footer>
 </main>
 
+<script type="text/plain" id="gasCode">// Elterngespräche – Online-Anmeldung (Google Apps Script)
+// Diesen Code in der Google-Tabelle unter Erweiterungen > Apps Script einfügen.
+// Der Schlüssel unten verbindet die Tabelle mit deinem Planungstool. Nicht weitergeben.
+var KEY = '__KEY__';
+
+var BOOK_HEAD = ['Zeitstempel', 'Name des Kindes', 'Name der Eltern', 'Termin', 'Bemerkung', 'Termin-Key'];
+
+function sheet_(name, head) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(name);
+  if (!sh) { sh = ss.insertSheet(name); sh.appendRow(head); sh.setFrozenRows(1); }
+  return sh;
+}
+
+function rows_(sh) {
+  var n = sh.getLastRow();
+  return n < 2 ? [] : sh.getRange(2, 1, n - 1, sh.getLastColumn()).getValues();
+}
+
+function slots_() {
+  return rows_(sheet_('Termine', ['Termin-Key', 'Termin'])).filter(function (r) { return r[0]; })
+    .map(function (r) { return { key: String(r[0]), label: String(r[1]) }; });
+}
+
+function bookings_() {
+  return rows_(sheet_('Anmeldungen', BOOK_HEAD)).filter(function (r) { return r[1] || r[5]; });
+}
+
+function props_() { return PropertiesService.getScriptProperties(); }
+
+function clean_(s, max) {
+  s = String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, max || 100);
+  return /^[=+\-@]/.test(s) ? "'" + s : s;
+}
+
+function json_(o) {
+  return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
+}
+
+// Elternseite
+function doGet() {
+  return HtmlService.createHtmlOutput(PAGE)
+    .setTitle(props_().getProperty('title') || 'Elterngespräche')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+// Wird von der Elternseite aufgerufen: nur freie Termine, keine Namen
+function getPublic() {
+  var p = props_(), taken = {};
+  bookings_().forEach(function (r) { taken[String(r[5])] = true; });
+  return {
+    title: p.getProperty('title') || 'Elterngespräche',
+    open: p.getProperty('open') !== 'no',
+    free: slots_().filter(function (s) { return !taken[s.key]; })
+  };
+}
+
+function book(form) {
+  var kind = clean_(form && form.kind), eltern = clean_(form && form.eltern), bem = clean_(form && form.bem, 300);
+  if (!kind || !eltern) return { ok: false, msg: 'Bitte beide Namen ausfüllen.' };
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    if (props_().getProperty('open') === 'no') return { ok: false, msg: 'Die Anmeldung ist geschlossen.' };
+    var slot = slots_().filter(function (s) { return s.key === String(form.slot); })[0];
+    if (!slot) return { ok: false, msg: 'Bitte einen Termin auswählen.' };
+    var list = bookings_(), k = kind.toLowerCase();
+    if (list.some(function (r) { return String(r[5]) === slot.key; })) return { ok: false, taken: true, msg: 'Dieser Termin wurde gerade vergeben. Bitte einen anderen wählen.' };
+    if (list.some(function (r) { return String(r[1]).toLowerCase() === k; })) return { ok: false, msg: 'Für ' + kind + ' gibt es schon einen Termin. Für Änderungen bitte direkt bei der Lehrperson melden.' };
+    sheet_('Anmeldungen', BOOK_HEAD).appendRow([new Date(), kind, eltern, slot.label, bem, slot.key]);
+    return { ok: true, label: slot.label };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Wird vom Planungstool aufgerufen (mit Schlüssel)
+function doPost(e) {
+  var d;
+  try { d = JSON.parse(e.postData.contents); } catch (err) { return json_({ ok: false, msg: 'Ungültige Anfrage.' }); }
+  if (!d || d.key !== KEY) return json_({ ok: false, msg: 'Falscher Schlüssel. Bitte den Code aus dem Tool neu einfügen.' });
+  var p = props_();
+  if (d.action === 'ping') return json_({ ok: true });
+  if (d.action === 'publish') {
+    var sh = sheet_('Termine', ['Termin-Key', 'Termin']);
+    if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, 2).clearContent();
+    var slots = (d.slots || []).map(function (s) { return [String(s.key), String(s.label)]; });
+    if (slots.length) { sh.getRange(2, 1, slots.length, 2).setNumberFormat('@').setValues(slots); }
+    p.setProperty('title', String(d.title || 'Elterngespräche').slice(0, 120));
+    p.setProperty('open', 'yes');
+    var keys = {}; slots.forEach(function (s) { keys[s[0]] = true; });
+    var orphan = bookings_().filter(function (r) { return !keys[String(r[5])]; }).length;
+    return json_({ ok: true, count: slots.length, orphan: orphan });
+  }
+  if (d.action === 'open' || d.action === 'close') {
+    p.setProperty('open', d.action === 'open' ? 'yes' : 'no');
+    return json_({ ok: true, open: d.action === 'open' });
+  }
+  if (d.action === 'list') {
+    var tz = Session.getScriptTimeZone();
+    var rows = bookings_().map(function (r) {
+      var ts = r[0] instanceof Date ? Utilities.formatDate(r[0], tz, 'dd.MM.yyyy HH:mm:ss') : String(r[0]);
+      return [ts, String(r[1]), String(r[2]), String(r[3]), String(r[4]), String(r[5])];
+    });
+    return json_({ ok: true, rows: rows, open: p.getProperty('open') !== 'no', slots: slots_().length });
+  }
+  return json_({ ok: false, msg: 'Unbekannte Aktion.' });
+}
+
+var PAGE = [
+  '<!DOCTYPE html><html><head><base target="_top"><meta charset="utf-8">',
+  '<style>',
+  'body{margin:0;font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#f4f5f7;color:#1c2330}',
+  'main{max-width:560px;margin:0 auto;padding:16px}',
+  '.card{background:#fff;border:1px solid #d9dde5;border-radius:10px;padding:16px}',
+  'h1{font-size:1.4rem;margin:4px 0 12px}',
+  'label{display:block;font-size:.9rem;color:#5d6677;margin:12px 0 4px}',
+  'input,select,textarea{font:inherit;width:100%;box-sizing:border-box;padding:10px;border:1px solid #d9dde5;border-radius:8px;background:#fff}',
+  'button{font:inherit;margin-top:16px;width:100%;padding:12px;border:0;border-radius:8px;background:#1f5fbf;color:#fff;cursor:pointer}',
+  'button:disabled{opacity:.6}',
+  '.msg{padding:10px 12px;border-radius:8px;margin:12px 0}',
+  '.ok{background:#e8f5ec;color:#1b6b34}.warn{background:#fdecea;color:#b42318}',
+  '</style></head><body><main><div class="card">',
+  '<h1 id="title">Elterngespräche</h1>',
+  '<div id="box">Termine werden geladen …</div>',
+  '</div></main>',
+  '<script>',
+  'var box=document.getElementById("box");',
+  'function el(t,a,txt){var e=document.createElement(t);for(var k in a)e.setAttribute(k,a[k]);if(txt)e.textContent=txt;return e;}',
+  'function msg(cls,txt){var d=el("div",{"class":"msg "+cls},txt);return d;}',
+  'function load(note){google.script.run.withSuccessHandler(function(d){show(d,note);}).withFailureHandler(function(){box.textContent="";box.appendChild(msg("warn","Die Termine konnten nicht geladen werden. Bitte später erneut versuchen."));}).getPublic();}',
+  'function show(d,note){',
+  ' document.getElementById("title").textContent=d.title;box.textContent="";',
+  ' if(note)box.appendChild(note);',
+  ' if(!d.open){box.appendChild(msg("warn","Die Anmeldung ist geschlossen."));return;}',
+  ' if(!d.free.length){box.appendChild(msg("warn","Es sind leider keine Termine mehr frei. Bitte melden Sie sich direkt bei der Lehrperson."));return;}',
+  ' box.appendChild(el("p",{},"Bitte wählen Sie einen freien Termin. Bereits vergebene Termine werden nicht angezeigt."));',
+  ' var f=el("form",{});',
+  ' f.appendChild(el("label",{"for":"slot"},"Termin"));var s=el("select",{id:"slot",required:""});',
+  ' s.appendChild(el("option",{value:""},"Bitte wählen …"));',
+  ' d.free.forEach(function(x){s.appendChild(el("option",{value:x.key},x.label));});f.appendChild(s);',
+  ' f.appendChild(el("label",{"for":"kind"},"Name des Kindes"));f.appendChild(el("input",{id:"kind",required:"",maxlength:"100",autocomplete:"off"}));',
+  ' f.appendChild(el("label",{"for":"eltern"},"Name der Eltern"));f.appendChild(el("input",{id:"eltern",required:"",maxlength:"100",autocomplete:"name"}));',
+  ' f.appendChild(el("label",{"for":"bem"},"Bemerkung (optional, z. B. Übersetzung gewünscht)"));f.appendChild(el("textarea",{id:"bem",rows:"2",maxlength:"300"}));',
+  ' var b=el("button",{type:"submit"},"Termin verbindlich buchen");f.appendChild(b);',
+  ' f.onsubmit=function(ev){ev.preventDefault();b.disabled=true;b.textContent="Wird gespeichert …";',
+  '  google.script.run.withSuccessHandler(function(r){',
+  '   if(r.ok){box.textContent="";box.appendChild(msg("ok","Vielen Dank! Ihr Termin: "+r.label+". Bitte notieren Sie sich den Termin."));return;}',
+  '   if(r.taken){load(msg("warn",r.msg));return;}',
+  '   b.disabled=false;b.textContent="Termin verbindlich buchen";var old=f.querySelector(".msg");if(old)old.remove();f.insertBefore(msg("warn",r.msg),b);',
+  '  }).withFailureHandler(function(){b.disabled=false;b.textContent="Termin verbindlich buchen";alert("Speichern hat nicht geklappt. Bitte erneut versuchen.");})',
+  '  .book({slot:s.value,kind:f.kind.value,eltern:f.eltern.value,bem:f.bem.value});};',
+  ' box.appendChild(f);',
+  '}',
+  'load();',
+  '<\/script></body></html>'
+].join('\n');
+</script>
 <script>
 (function () {
   'use strict';
@@ -427,10 +615,10 @@
     S.days.push({ date: '', start: l.start, end: l.end }); save(); renderDays(); renderAll();
   });
 
-  function copyText(text, msgEl) {
+  function copyText(text, msgEl, area) {
     function done(ok) { msgEl.textContent = ok ? 'In die Zwischenablage kopiert (' + text.split('\n').length + ' Zeilen).' : 'Kopieren nicht möglich. Bitte Text im Feld markieren und mit Strg+C kopieren.'; }
     function fallback() {
-      var ta = $('slotText'); ta.focus(); ta.select();
+      var ta = area || $('slotText'); ta.focus(); ta.select();
       var ok = false; try { ok = document.execCommand('copy'); } catch (e) {}
       done(ok);
     }
@@ -554,9 +742,82 @@
   window.addEventListener('beforeprint', fitSheet);
 
   $('resetAll').addEventListener('click', function () {
-    if (!confirm('Alle Eingaben und importierten Antworten in diesem Browser löschen?')) return;
-    try { localStorage.removeItem(KEY); } catch (e) {}
-    S = defaults(); location.reload();
+    if (!confirm('Alle Eingaben und importierten Antworten in diesem Browser löschen? Die Verbindung zur Google-Tabelle bleibt erhalten.')) return;
+    var keepKey = S.gasKey, keepUrl = S.gasUrl;
+    S = defaults(); S.gasKey = keepKey; S.gasUrl = keepUrl; save(); location.reload();
+  });
+
+  /* ---------- Online-Anmeldung (Google Apps Script) ---------- */
+  function gasKey() {
+    if (!S.gasKey) {
+      var a = new Uint8Array(18); (window.crypto || window.msCrypto).getRandomValues(a);
+      S.gasKey = Array.prototype.map.call(a, function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+      save();
+    }
+    return S.gasKey;
+  }
+  function gasMsg(cls, text) { $('gasMsg').innerHTML = text ? '<div class="msg ' + cls + '">' + text + '</div>' : ''; }
+  function gas(payload) {
+    var url = (S.gasUrl || '').trim();
+    if (!/^https:\/\/script\.google(usercontent)?\.com\/.+\/exec$/.test(url)) return Promise.reject(new Error('Bitte zuerst die Web-App-URL eintragen. Sie beginnt mit https://script.google.com/ und endet auf /exec.'));
+    payload.key = gasKey();
+    return fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) })
+      .then(function (r) { return r.json(); }, function () { throw new Error('Keine Verbindung zur Google-Tabelle. Prüfe die URL und ob bei „Zugriff“ „Jeder“ gewählt ist.'); })
+      .then(function (d) { if (!d || !d.ok) throw new Error((d && d.msg) || 'Unbekannter Fehler.'); return d; },
+        function (e) { throw e.message && /Verbindung|URL/.test(e.message) ? e : new Error('Unerwartete Antwort. Ist die URL die Web-App-URL (endet auf /exec)?'); });
+  }
+  function busy(btn, on) { btn.disabled = on; }
+  $('gasText').value = $('gasCode').textContent.replace('__KEY__', gasKey()).replace(/^\s+/, '');
+  $('gasUrl').value = S.gasUrl || '';
+  if (!S.gasUrl) $('gasSetup').open = true;
+  $('gasUrl').addEventListener('input', function () { S.gasUrl = this.value.trim(); save(); });
+  $('copyGas').addEventListener('click', function () { copyText($('gasText').value, $('gasCopyMsg'), $('gasText')); });
+  $('gasLink').addEventListener('click', function () {
+    if (!S.gasUrl) { gasMsg('warn', 'Bitte zuerst die Web-App-URL eintragen.'); return; }
+    var m = document.createElement('span');
+    copyText(S.gasUrl, m, $('gasUrl'));
+    gasMsg('ok', 'Elternlink kopiert. Diesen Link per Mail oder Elternbrief verschicken: ' + esc(S.gasUrl));
+  });
+  $('gasPublish').addEventListener('click', function () {
+    var btn = this, slots = genSlots();
+    if (!slots.length) { gasMsg('warn', 'Es gibt noch keine Termine. Bitte oben Tage und Zeiten eintragen.'); return; }
+    var title = 'Elterngespräche' + (S.klasse.trim() || dateRange() ? ' – ' + [S.klasse.trim(), dateRange()].filter(Boolean).join(', ') : '');
+    busy(btn, true); gasMsg('', '');
+    gas({ action: 'publish', title: title, slots: slots.map(function (s) { return { key: s.key, label: s.label }; }) })
+      .then(function (d) {
+        gasMsg(d.orphan ? 'warn' : 'ok', d.count + ' Termine veröffentlicht. Die Anmeldung ist offen.' +
+          (d.orphan ? ' Achtung: ' + d.orphan + ' bestehende Anmeldung(en) passen nicht mehr zu den neuen Terminen. Sie erscheinen nach dem Laden als „nicht zuordenbar“.' : ' Jetzt den Elternlink verschicken.'));
+        $('gasToggle').textContent = 'Anmeldung schliessen'; S.gasOpen = true; save();
+      }).catch(function (e) { gasMsg('warn', esc(e.message)); }).then(function () { busy(btn, false); });
+  });
+  $('gasToggle').textContent = S.gasOpen === false ? 'Anmeldung wieder öffnen' : 'Anmeldung schliessen';
+  $('gasToggle').addEventListener('click', function () {
+    var btn = this, open = S.gasOpen === false;
+    busy(btn, true);
+    gas({ action: open ? 'open' : 'close' }).then(function (d) {
+      S.gasOpen = d.open; save();
+      btn.textContent = d.open ? 'Anmeldung schliessen' : 'Anmeldung wieder öffnen';
+      gasMsg('ok', d.open ? 'Die Anmeldung ist wieder offen.' : 'Die Anmeldung ist geschlossen. Eltern sehen keine Termine mehr.');
+    }).catch(function (e) { gasMsg('warn', esc(e.message)); }).then(function () { busy(btn, false); });
+  });
+  $('gasLoad').addEventListener('click', function () {
+    var btn = this;
+    busy(btn, true);
+    gas({ action: 'list' }).then(function (d) {
+      var head = ['Zeitstempel', 'Name des Kindes', 'Name der Eltern', 'Termin', 'Bemerkung', 'Termin-Key'];
+      var rows = d.rows.map(function (r) { return r.map(function (x) { return String(x == null ? '' : x).trim(); }); });
+      var same = S.table && S.table.headers.join('|') === head.join('|');
+      var keep = same ? { manual: S.manual, names: S.names, notes: S.notes } : null;
+      S.table = { headers: head, rows: rows };
+      S.map = { ts: 0, name: 1, extra: 2, slot: 3 };
+      S.manual = keep ? keep.manual : {}; S.names = keep ? keep.names : {}; S.notes = keep ? keep.notes : {};
+      var slots = genSlots(), byKey = {};
+      slots.forEach(function (s) { byKey[s.key] = s; });
+      rows.forEach(function (r) { if (r[4] && byKey[r[5]] && !S.notes[r[5]]) S.notes[r[5]] = r[4]; });
+      S.gasOpen = d.open; save(); renderAll();
+      $('gasToggle').textContent = d.open ? 'Anmeldung schliessen' : 'Anmeldung wieder öffnen';
+      gasMsg('ok', rows.length + ' Anmeldung(en) geladen, Stand ' + new Date().toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' }) + ' Uhr. Die Zuordnung steht unten in Schritt 4 und im Aushang.');
+    }).catch(function (e) { gasMsg('warn', esc(e.message)); }).then(function () { busy(btn, false); });
   });
 
   renderDays();
