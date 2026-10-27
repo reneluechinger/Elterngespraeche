@@ -94,7 +94,7 @@
   <!-- 2b. Online-Anmeldung -->
   <section class="card noprint" id="online">
     <h2><span class="step">2</span>Online-Anmeldung über Google-Tabelle</h2>
-    <p class="hint">Eltern buchen über einen Link direkt einen freien Termin. Doppelbuchungen sind nicht möglich. Die Anmeldungen landen in deiner Google-Tabelle, und das Tool lädt sie mit einem Klick.</p>
+    <p class="hint">Eltern kreuzen über einen Link alle Termine an, an denen sie können, und wählen auf Wunsch einen Lieblingstermin. Das Tool verteilt danach so, dass alle einen Termin haben, jeder Tag ein dichter Block ohne Lücken ist und möglichst viele Lieblingstermine passen. Nach der Freigabe sehen die Eltern ihren Termin über denselben Link.</p>
     <details id="gasSetup">
       <summary><strong>Einmalige Einrichtung (ca. 10 Minuten)</strong></summary>
       <ol class="hint" style="color:var(--ink)">
@@ -112,18 +112,28 @@
     <div class="row" style="margin-top:10px">
       <div style="flex:1;min-width:240px"><label for="gasUrl">Web-App-URL</label><input id="gasUrl" type="text" style="width:100%" placeholder="https://script.google.com/macros/s/…/exec"></div>
     </div>
-    <div class="toolbar">
+    <p class="hint" style="margin-top:10px"><strong>A. Abfrage starten</strong></p>
+    <div class="toolbar" style="margin-top:4px">
       <button class="primary" id="gasPublish">Termine veröffentlichen</button>
       <button id="gasLink">Elternlink kopieren</button>
-      <button class="primary" id="gasLoad">Anmeldungen laden</button>
       <button id="gasToggle">Anmeldung schliessen</button>
+    </div>
+    <p class="hint" style="margin-top:12px"><strong>B. Auswerten</strong> (beliebig oft, der Plan wird jedes Mal neu berechnet)</p>
+    <div class="toolbar" style="margin-top:4px">
+      <button class="primary" id="gasLoad">Anmeldungen laden und verteilen</button>
+      <button id="wishDemo">Testdaten (20 Beispiele)</button>
+    </div>
+    <p class="hint" style="margin-top:12px"><strong>C. Termine für Eltern freigeben</strong> (schliesst die Anmeldung, Eltern sehen danach ihren Termin)</p>
+    <div class="toolbar" style="margin-top:4px">
+      <button class="primary" id="gasRelease">Termine freigeben</button>
+      <button id="gasUnrelease">Freigabe zurücknehmen</button>
     </div>
     <div id="gasMsg"></div>
   </section>
 
   <!-- 3. Import -->
   <section class="card noprint">
-    <h2><span class="step">3</span>Antworten importieren (nur bei Forms)</h2>
+    <h2><span class="step">3</span>Antworten importieren (Forms) und offene Fälle</h2>
     <div class="drop" id="drop">CSV- oder Excel-Datei hierher ziehen oder <label style="display:inline;color:var(--accent);cursor:pointer;text-decoration:underline">Datei wählen<input id="file" type="file" accept=".csv,.tsv,.txt,.xlsx,.xls" hidden></label></div>
     <p class="hint">Oder CSV-Text einfügen (inklusive Kopfzeile):</p>
     <textarea id="paste" rows="3" placeholder="Zeitstempel;Name des Kindes;Name der Eltern;Terminwunsch"></textarea>
@@ -152,16 +162,18 @@
 
   <footer class="noprint hint" style="text-align:center;margin-bottom:24px">
     <button id="resetAll" class="danger">Alles zurücksetzen</button>
-    <div style="margin-top:8px">Version 1.3</div>
+    <div style="margin-top:8px">Version 1.4</div>
   </footer>
 </main>
 
-<script type="text/plain" id="gasCode">// Elterngespräche – Online-Anmeldung (Google Apps Script)
+<script type="text/plain" id="gasCode">// Elterngespräche – Online-Anmeldung mit Wunschterminen (Google Apps Script)
 // Diesen Code in der Google-Tabelle unter Erweiterungen > Apps Script einfügen.
 // Der Schlüssel unten verbindet die Tabelle mit deinem Planungstool. Nicht weitergeben.
 var KEY = '__KEY__';
 
-var BOOK_HEAD = ['Zeitstempel', 'Name des Kindes', 'Name der Eltern', 'Termin', 'Bemerkung', 'Termin-Key'];
+var WISH_HEAD = ['Zeitstempel', 'Name des Kindes', 'Name der Eltern', 'Mögliche Termine', 'Lieblingstermin', 'Bemerkung', 'Termin-Keys', 'Lieblings-Key'];
+var SLOT_HEAD = ['Termin-Key', 'Termin', 'Tag', 'Zeit'];
+var ASSIGN_HEAD = ['Name des Kindes', 'Termin', 'Termin-Key'];
 
 function sheet_(name, head) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -175,14 +187,20 @@ function rows_(sh) {
   return n < 2 ? [] : sh.getRange(2, 1, n - 1, sh.getLastColumn()).getValues();
 }
 
-function slots_() {
-  return rows_(sheet_('Termine', ['Termin-Key', 'Termin'])).filter(function (r) { return r[0]; })
-    .map(function (r) { return { key: String(r[0]), label: String(r[1]) }; });
+function clear_(sh) {
+  if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).clearContent();
 }
 
-function bookings_() {
-  return rows_(sheet_('Anmeldungen', BOOK_HEAD)).filter(function (r) { return r[1] || r[5]; });
+function slots_() {
+  return rows_(sheet_('Termine', SLOT_HEAD)).filter(function (r) { return r[0]; })
+    .map(function (r) { return { key: String(r[0]), label: String(r[1]), day: String(r[2]), time: String(r[3]) }; });
 }
+
+function wishes_() {
+  return rows_(sheet_('Anmeldungen', WISH_HEAD)).filter(function (r) { return r[1]; });
+}
+
+function norm_(s) { return String(s == null ? '' : s).replace(/^'/, '').replace(/\s+/g, ' ').trim().toLowerCase(); }
 
 function props_() { return PropertiesService.getScriptProperties(); }
 
@@ -202,34 +220,48 @@ function doGet() {
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
-// Wird von der Elternseite aufgerufen: nur freie Termine, keine Namen
+// Wird von der Elternseite aufgerufen: nur Termine, keine Namen
 function getPublic() {
-  var p = props_(), taken = {};
-  bookings_().forEach(function (r) { taken[String(r[5])] = true; });
+  var p = props_();
   return {
     title: p.getProperty('title') || 'Elterngespräche',
     open: p.getProperty('open') !== 'no',
-    free: slots_().filter(function (s) { return !taken[s.key]; })
+    released: p.getProperty('released') === 'yes',
+    slots: slots_()
   };
 }
 
-function book(form) {
-  var kind = clean_(form && form.kind), eltern = clean_(form && form.eltern), bem = clean_(form && form.bem, 300);
+function submit(form) {
+  form = form || {};
+  var kind = clean_(form.kind), eltern = clean_(form.eltern), bem = clean_(form.bem, 300);
   if (!kind || !eltern) return { ok: false, msg: 'Bitte beide Namen ausfüllen.' };
   var lock = LockService.getScriptLock();
   lock.waitLock(15000);
   try {
-    if (props_().getProperty('open') === 'no') return { ok: false, msg: 'Die Anmeldung ist geschlossen.' };
-    var slot = slots_().filter(function (s) { return s.key === String(form.slot); })[0];
-    if (!slot) return { ok: false, msg: 'Bitte einen Termin auswählen.' };
-    var list = bookings_(), k = kind.toLowerCase();
-    if (list.some(function (r) { return String(r[5]) === slot.key; })) return { ok: false, taken: true, msg: 'Dieser Termin wurde gerade vergeben. Bitte einen anderen wählen.' };
-    if (list.some(function (r) { return String(r[1]).toLowerCase() === k; })) return { ok: false, msg: 'Für ' + kind + ' gibt es schon einen Termin. Für Änderungen bitte direkt bei der Lehrperson melden.' };
-    sheet_('Anmeldungen', BOOK_HEAD).appendRow([new Date(), kind, eltern, slot.label, bem, slot.key]);
-    return { ok: true, label: slot.label };
+    var p = props_();
+    if (p.getProperty('open') === 'no' || p.getProperty('released') === 'yes') return { ok: false, msg: 'Die Anmeldung ist geschlossen.' };
+    var byKey = {};
+    slots_().forEach(function (s) { byKey[s.key] = s; });
+    var keys = (form.slots || []).map(String).filter(function (k, i, a) { return byKey[k] && a.indexOf(k) === i; });
+    if (!keys.length) return { ok: false, msg: 'Bitte mindestens einen möglichen Termin ankreuzen.' };
+    var fav = byKey[String(form.fav)] && keys.indexOf(String(form.fav)) >= 0 ? String(form.fav) : '';
+    var k = norm_(kind);
+    if (wishes_().some(function (r) { return norm_(r[1]) === k; })) return { ok: false, msg: 'Für ' + kind + ' gibt es schon eine Anmeldung. Für Änderungen bitte direkt bei der Lehrperson melden.' };
+    sheet_('Anmeldungen', WISH_HEAD).appendRow([new Date(), kind, eltern,
+      keys.map(function (x) { return byKey[x].label; }).join('\n'), fav ? byKey[fav].label : '', bem, keys.join(','), fav]);
+    return { ok: true, count: keys.length, fav: fav ? byKey[fav].label : '' };
   } finally {
     lock.releaseLock();
   }
+}
+
+// Termin nachschauen (erst nach Freigabe)
+function lookup(kind) {
+  if (props_().getProperty('released') !== 'yes') return { released: false };
+  var k = norm_(kind);
+  if (!k) return { released: true, found: false };
+  var hit = rows_(sheet_('Zuteilung', ASSIGN_HEAD)).filter(function (r) { return norm_(r[0]) === k; })[0];
+  return { released: true, found: !!hit, label: hit ? String(hit[1]) : '' };
 }
 
 // Wird vom Planungstool aufgerufen (mit Schlüssel)
@@ -240,14 +272,16 @@ function doPost(e) {
   var p = props_();
   if (d.action === 'ping') return json_({ ok: true });
   if (d.action === 'publish') {
-    var sh = sheet_('Termine', ['Termin-Key', 'Termin']);
-    if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, 2).clearContent();
-    var slots = (d.slots || []).map(function (s) { return [String(s.key), String(s.label)]; });
-    if (slots.length) { sh.getRange(2, 1, slots.length, 2).setNumberFormat('@').setValues(slots); }
+    var sh = sheet_('Termine', SLOT_HEAD);
+    clear_(sh);
+    var slots = (d.slots || []).map(function (s) { return [String(s.key), String(s.label), String(s.day || ''), String(s.time || '')]; });
+    if (slots.length) sh.getRange(2, 1, slots.length, 4).setNumberFormat('@').setValues(slots);
+    clear_(sheet_('Zuteilung', ASSIGN_HEAD));
     p.setProperty('title', String(d.title || 'Elterngespräche').slice(0, 120));
     p.setProperty('open', 'yes');
-    var keys = {}; slots.forEach(function (s) { keys[s[0]] = true; });
-    var orphan = bookings_().filter(function (r) { return !keys[String(r[5])]; }).length;
+    p.setProperty('released', 'no');
+    var valid = {}; slots.forEach(function (s) { valid[s[0]] = true; });
+    var orphan = wishes_().filter(function (r) { return !String(r[6]).split(',').some(function (k) { return valid[k]; }); }).length;
     return json_({ ok: true, count: slots.length, orphan: orphan });
   }
   if (d.action === 'open' || d.action === 'close') {
@@ -256,11 +290,24 @@ function doPost(e) {
   }
   if (d.action === 'list') {
     var tz = Session.getScriptTimeZone();
-    var rows = bookings_().map(function (r) {
+    var rows = wishes_().map(function (r) {
       var ts = r[0] instanceof Date ? Utilities.formatDate(r[0], tz, 'dd.MM.yyyy HH:mm:ss') : String(r[0]);
-      return [ts, String(r[1]), String(r[2]), String(r[3]), String(r[4]), String(r[5])];
+      return [ts, String(r[1]).replace(/^'/, ''), String(r[2]).replace(/^'/, ''), String(r[5]).replace(/^'/, ''), String(r[6]), String(r[7])];
     });
-    return json_({ ok: true, rows: rows, open: p.getProperty('open') !== 'no', slots: slots_().length });
+    return json_({ ok: true, rows: rows, open: p.getProperty('open') !== 'no', released: p.getProperty('released') === 'yes' });
+  }
+  if (d.action === 'release') {
+    var ash = sheet_('Zuteilung', ASSIGN_HEAD);
+    clear_(ash);
+    var list = (d.assign || []).map(function (a) { return [clean_(a[0]), String(a[1]), String(a[2])]; });
+    if (list.length) ash.getRange(2, 1, list.length, 3).setNumberFormat('@').setValues(list);
+    p.setProperty('released', 'yes');
+    p.setProperty('open', 'no');
+    return json_({ ok: true, count: list.length });
+  }
+  if (d.action === 'unrelease') {
+    p.setProperty('released', 'no');
+    return json_({ ok: true });
   }
   return json_({ ok: false, msg: 'Unbekannte Aktion.' });
 }
@@ -270,47 +317,73 @@ var PAGE = [
   '<style>',
   'body{margin:0;font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#f4f5f7;color:#1c2330}',
   'main{max-width:560px;margin:0 auto;padding:16px}',
-  '.card{background:#fff;border:1px solid #d9dde5;border-radius:10px;padding:16px}',
-  'h1{font-size:1.4rem;margin:4px 0 12px}',
-  'label{display:block;font-size:.9rem;color:#5d6677;margin:12px 0 4px}',
-  'input,select,textarea{font:inherit;width:100%;box-sizing:border-box;padding:10px;border:1px solid #d9dde5;border-radius:8px;background:#fff}',
-  'button{font:inherit;margin-top:16px;width:100%;padding:12px;border:0;border-radius:8px;background:#1f5fbf;color:#fff;cursor:pointer}',
-  'button:disabled{opacity:.6}',
+  '.card{background:#fff;border:1px solid #d9dde5;border-radius:10px;padding:16px;margin-bottom:16px}',
+  'h1{font-size:1.4rem;margin:4px 0 12px}h2{font-size:1.1rem;margin:0 0 8px}',
+  'label.f{display:block;font-size:.9rem;color:#5d6677;margin:14px 0 4px}',
+  'input[type=text],select,textarea{font:inherit;width:100%;box-sizing:border-box;padding:10px;border:1px solid #d9dde5;border-radius:8px;background:#fff}',
+  'button{font:inherit;padding:12px;border:0;border-radius:8px;background:#1f5fbf;color:#fff;cursor:pointer}',
+  'button.wide{margin-top:16px;width:100%}button:disabled{opacity:.6}',
+  'button.link{background:none;color:#1f5fbf;padding:0;text-decoration:underline;font-size:.9rem}',
+  '.day{border:1px solid #d9dde5;border-radius:8px;padding:8px 12px;margin:10px 0}',
+  '.dayhead{display:flex;justify-content:space-between;align-items:center;font-weight:600;margin-bottom:4px}',
+  '.slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:4px}',
+  '.slots label{display:flex;gap:8px;align-items:center;padding:6px 4px;cursor:pointer}',
+  '.slots input{width:20px;height:20px}',
   '.msg{padding:10px 12px;border-radius:8px;margin:12px 0}',
   '.ok{background:#e8f5ec;color:#1b6b34}.warn{background:#fdecea;color:#b42318}',
-  '</style></head><body><main><div class="card">',
-  '<h1 id="title">Elterngespräche</h1>',
-  '<div id="box">Termine werden geladen …</div>',
-  '</div></main>',
+  '.hint{color:#5d6677;font-size:.9rem}',
+  '</style></head><body><main>',
+  '<div class="card"><h1 id="title">Elterngespräche</h1><div id="box">Wird geladen …</div></div>',
+  '<div class="card" id="look" hidden><h2>Termin nachschauen</h2>',
+  '<label class="f" for="lk">Name des Kindes (wie bei der Anmeldung)</label><input type="text" id="lk" maxlength="100">',
+  '<button class="wide" id="lkb">Termin anzeigen</button><div id="lkr"></div></div>',
+  '</main>',
   '<script>',
   'var box=document.getElementById("box");',
   'function el(t,a,txt){var e=document.createElement(t);for(var k in a)e.setAttribute(k,a[k]);if(txt)e.textContent=txt;return e;}',
-  'function msg(cls,txt){var d=el("div",{"class":"msg "+cls},txt);return d;}',
-  'function load(note){google.script.run.withSuccessHandler(function(d){show(d,note);}).withFailureHandler(function(){box.textContent="";box.appendChild(msg("warn","Die Termine konnten nicht geladen werden. Bitte später erneut versuchen."));}).getPublic();}',
-  'function show(d,note){',
+  'function msg(cls,txt){return el("div",{"class":"msg "+cls},txt);}',
+  'function fail(){box.textContent="";box.appendChild(msg("warn","Die Seite konnte nicht geladen werden. Bitte später erneut versuchen."));}',
+  'google.script.run.withSuccessHandler(show).withFailureHandler(fail).getPublic();',
+  'document.getElementById("lkb").onclick=function(){var r=document.getElementById("lkr"),b=this;b.disabled=true;r.textContent="";',
+  ' google.script.run.withSuccessHandler(function(d){b.disabled=false;',
+  '  if(!d.released)r.appendChild(msg("warn","Die Termine sind noch nicht festgelegt. Bitte später nochmals nachschauen."));',
+  '  else if(!d.found)r.appendChild(msg("warn","Zu diesem Namen wurde kein Termin gefunden. Bitte Schreibweise prüfen oder bei der Lehrperson melden."));',
+  '  else r.appendChild(msg("ok","Ihr Termin: "+d.label));',
+  ' }).withFailureHandler(function(){b.disabled=false;r.appendChild(msg("warn","Bitte erneut versuchen."));}).lookup(document.getElementById("lk").value);};',
+  'function show(d){',
   ' document.getElementById("title").textContent=d.title;box.textContent="";',
-  ' if(note)box.appendChild(note);',
-  ' if(!d.open){box.appendChild(msg("warn","Die Anmeldung ist geschlossen."));return;}',
-  ' if(!d.free.length){box.appendChild(msg("warn","Es sind leider keine Termine mehr frei. Bitte melden Sie sich direkt bei der Lehrperson."));return;}',
-  ' box.appendChild(el("p",{},"Bitte wählen Sie einen freien Termin. Bereits vergebene Termine werden nicht angezeigt."));',
-  ' var f=el("form",{});',
-  ' f.appendChild(el("label",{"for":"slot"},"Termin"));var s=el("select",{id:"slot",required:""});',
-  ' s.appendChild(el("option",{value:""},"Bitte wählen …"));',
-  ' d.free.forEach(function(x){s.appendChild(el("option",{value:x.key},x.label));});f.appendChild(s);',
-  ' f.appendChild(el("label",{"for":"kind"},"Name des Kindes"));f.appendChild(el("input",{id:"kind",required:"",maxlength:"100",autocomplete:"off"}));',
-  ' f.appendChild(el("label",{"for":"eltern"},"Name der Eltern"));f.appendChild(el("input",{id:"eltern",required:"",maxlength:"100",autocomplete:"name"}));',
-  ' f.appendChild(el("label",{"for":"bem"},"Bemerkung (optional, z. B. Übersetzung gewünscht)"));f.appendChild(el("textarea",{id:"bem",rows:"2",maxlength:"300"}));',
-  ' var b=el("button",{type:"submit"},"Termin verbindlich buchen");f.appendChild(b);',
-  ' f.onsubmit=function(ev){ev.preventDefault();b.disabled=true;b.textContent="Wird gespeichert …";',
+  ' document.getElementById("look").hidden=false;',
+  ' if(d.released){box.appendChild(msg("ok","Die Termine sind festgelegt. Unten können Sie Ihren Termin nachschauen."));return;}',
+  ' if(!d.open||!d.slots.length){box.appendChild(msg("warn","Die Anmeldung ist geschlossen. Sobald die Termine festgelegt sind, können Sie Ihren Termin unten nachschauen."));return;}',
+  ' box.appendChild(el("p",{},"Bitte kreuzen Sie alle Termine an, an denen Sie können. Je mehr Termine Sie angeben, desto besser lässt sich der Plan erstellen. Ihren Lieblingstermin berücksichtigen wir, wenn es möglich ist."));',
+  ' var f=el("form",{}),groups={},order=[];',
+  ' d.slots.forEach(function(s){if(!groups[s.day]){groups[s.day]=[];order.push(s.day);}groups[s.day].push(s);});',
+  ' var fav=el("select",{id:"fav"});',
+  ' function favs(){var cur=fav.value;fav.textContent="";fav.appendChild(el("option",{value:""},"Kein Lieblingstermin"));',
+  '  f.querySelectorAll("input[type=checkbox]:checked").forEach(function(c){var o=el("option",{value:c.value},c.dataset.label);if(c.value===cur)o.selected=true;fav.appendChild(o);});}',
+  ' order.forEach(function(day){var g=el("div",{"class":"day"}),h=el("div",{"class":"dayhead"});h.appendChild(el("span",{},day));',
+  '  var all=el("button",{type:"button","class":"link"},"alle ankreuzen");h.appendChild(all);g.appendChild(h);',
+  '  var wrap=el("div",{"class":"slots"});',
+  '  groups[day].forEach(function(s){var l=el("label",{}),c=el("input",{type:"checkbox",value:s.key});c.dataset.label=s.label;c.onchange=favs;l.appendChild(c);l.appendChild(document.createTextNode(s.time||s.label));wrap.appendChild(l);});',
+  '  all.onclick=function(){var cs=wrap.querySelectorAll("input"),on=[].some.call(cs,function(c){return !c.checked;});cs.forEach(function(c){c.checked=on;});all.textContent=on?"alle abwählen":"alle ankreuzen";favs();};',
+  '  g.appendChild(wrap);f.appendChild(g);});',
+  ' f.appendChild(el("label",{"class":"f","for":"fav"},"Lieblingstermin (optional)"));favs();f.appendChild(fav);',
+  ' f.appendChild(el("label",{"class":"f","for":"kind"},"Name des Kindes"));f.appendChild(el("input",{type:"text",id:"kind",required:"",maxlength:"100",autocomplete:"off"}));',
+  ' f.appendChild(el("label",{"class":"f","for":"eltern"},"Name der Eltern"));f.appendChild(el("input",{type:"text",id:"eltern",required:"",maxlength:"100",autocomplete:"name"}));',
+  ' f.appendChild(el("label",{"class":"f","for":"bem"},"Bemerkung (optional, z. B. Übersetzung gewünscht)"));f.appendChild(el("textarea",{id:"bem",rows:"2",maxlength:"300"}));',
+  ' var b=el("button",{type:"submit","class":"wide"},"Angaben absenden");f.appendChild(b);',
+  ' function err(t){var old=f.querySelector(".msg");if(old)old.remove();f.insertBefore(msg("warn",t),b);}',
+  ' f.onsubmit=function(ev){ev.preventDefault();',
+  '  var keys=[].map.call(f.querySelectorAll("input[type=checkbox]:checked"),function(c){return c.value;});',
+  '  if(!keys.length){err("Bitte mindestens einen möglichen Termin ankreuzen.");return;}',
+  '  b.disabled=true;b.textContent="Wird gespeichert …";',
   '  google.script.run.withSuccessHandler(function(r){',
-  '   if(r.ok){box.textContent="";box.appendChild(msg("ok","Vielen Dank! Ihr Termin: "+r.label+". Bitte notieren Sie sich den Termin."));return;}',
-  '   if(r.taken){load(msg("warn",r.msg));return;}',
-  '   b.disabled=false;b.textContent="Termin verbindlich buchen";var old=f.querySelector(".msg");if(old)old.remove();f.insertBefore(msg("warn",r.msg),b);',
-  '  }).withFailureHandler(function(){b.disabled=false;b.textContent="Termin verbindlich buchen";alert("Speichern hat nicht geklappt. Bitte erneut versuchen.");})',
-  '  .book({slot:s.value,kind:f.kind.value,eltern:f.eltern.value,bem:f.bem.value});};',
+  '   if(r.ok){box.textContent="";box.appendChild(msg("ok","Vielen Dank! Wir haben "+r.count+" mögliche Termine erhalten"+(r.fav?" (Lieblingstermin: "+r.fav+")":"")+". Sobald der Plan steht, können Sie Ihren Termin unten nachschauen."));return;}',
+  '   b.disabled=false;b.textContent="Angaben absenden";err(r.msg);',
+  '  }).withFailureHandler(function(){b.disabled=false;b.textContent="Angaben absenden";err("Speichern hat nicht geklappt. Bitte erneut versuchen.");})',
+  '  .submit({slots:keys,fav:fav.value,kind:document.getElementById("kind").value,eltern:document.getElementById("eltern").value,bem:document.getElementById("bem").value});};',
   ' box.appendChild(f);',
   '}',
-  'load();',
   '<\/script></body></html>'
 ].join('\n');
 </script>
@@ -401,7 +474,7 @@ var PAGE = [
     var width = Math.max.apply(null, rows.map(function (r) { return r.length; }));
     rows = rows.map(function (r) { r = r.map(function (x) { return String(x == null ? '' : x).trim(); }); while (r.length < width) r.push(''); return r; });
     S.table = { headers: rows[0], rows: rows.slice(1) };
-    S.manual = {}; S.names = {}; S.notes = {};
+    S.manual = {}; S.names = {}; S.notes = {}; S.mode = 'forms'; S.wishStats = null;
     S.map = detect(S.table);
     save();
   }
@@ -456,7 +529,7 @@ var PAGE = [
     S.table.rows.forEach(function (r, i) {
       var name = m.name >= 0 ? r[m.name] : '', extra = m.extra >= 0 ? r[m.extra] : '', st = m.slot >= 0 ? r[m.slot] : '';
       if (!name && !extra && !st) return;
-      resp.push({ id: String(i), order: i, ts: m.ts >= 0 ? parseTs(r[m.ts]) : NaN, name: name, extra: extra, slotText: st });
+      resp.push({ id: String(i), order: i, ts: m.ts >= 0 ? parseTs(r[m.ts]) : NaN, name: name, extra: extra, slotText: st, alt: S.mode === 'wish' ? r[5] : '', favKey: S.mode === 'wish' ? r[8] : '' });
     });
     res.total = resp.length;
     function disp(r) { return r.name + (r.extra ? ' (' + r.extra + ')' : ''); }
@@ -468,7 +541,7 @@ var PAGE = [
       if (mv === 'skip') { res.skipped++; return; }
       if (mv && keys[mv]) { r.target = mv; manual.push(r); return; }
       r.target = parseSlotText(r.slotText, slots);
-      if (!r.target) { r.reason = r.slotText ? 'Slot nicht erkannt oder nicht im Plan (Limit pro Tag oder Zeitraum)' : 'Kein Slot angegeben'; res.unmatched.push(r); return; }
+      if (!r.target) { r.reason = S.mode === 'wish' ? 'Keiner der angegebenen Termine war noch frei. Angegeben: ' + (r.alt || 'keine gültigen Termine') : r.slotText ? 'Slot nicht erkannt oder nicht im Plan (Limit pro Tag oder Zeitraum)' : 'Kein Slot angegeben'; res.unmatched.push(r); return; }
       auto.push(r);
     });
     manual.concat(auto).forEach(function (r) {
@@ -512,9 +585,9 @@ var PAGE = [
       return '<div><label>' + label + '</label><select data-map="' + field + '">' + o + '</select></div>';
     }
     h += '<div class="row" style="margin-top:10px">' + sel('name', 'Schülername', false) + sel('extra', 'Eltern (optional)', true) + sel('slot', 'Gewählter Slot', false) + sel('ts', 'Zeitstempel (optional)', true) + '</div>';
-    $('mapping').innerHTML = h;
+    $('mapping').innerHTML = S.mode === 'wish' ? '' : h;
 
-    var assigned = Object.keys(c.assign).length, p = '';
+    var assigned = Object.keys(c.assign).length, p = S.mode === 'wish' && S.wishStats ? '<div class="msg ok">' + esc(wishSummary()) + '</div>' : '';
     p += '<div class="msg ' + (c.conflicts.length || c.unmatched.length ? 'warn' : 'ok') + '">' + c.total + ' Antworten, ' + assigned + ' zugeordnet' +
       (c.conflicts.length ? ', ' + c.conflicts.length + ' Konflikt(e)' : '') + (c.unmatched.length ? ', ' + c.unmatched.length + ' nicht zuordenbar' : '') +
       (c.skipped ? ', ' + c.skipped + ' verworfen' : '') + '.</div>';
@@ -523,14 +596,14 @@ var PAGE = [
       return '<option value="">Slot wählen …</option>' + free.map(function (s) { return '<option value="' + esc(s.key) + '">' + esc(s.label) + '</option>'; }).join('') + '<option value="skip">Verwerfen</option>';
     }
     if (c.conflicts.length || c.unmatched.length) {
-      p += '<div class="toolbar" style="margin:0 0 8px"><button class="primary" id="autoDist">Rest automatisch verteilen</button><span class="hint">Freier Slot am nächsten zur Wunschzeit, früher Antwortende zuerst.</span></div>';
+      if (S.mode !== 'wish') p += '<div class="toolbar" style="margin:0 0 8px"><button class="primary" id="autoDist">Rest automatisch verteilen</button><span class="hint">Freier Slot am nächsten zur Wunschzeit, früher Antwortende zuerst.</span></div>';
       p += '<div class="scroll"><table class="data"><tr><th>Name</th><th>Problem</th><th>Neu zuweisen</th></tr>';
       c.conflicts.forEach(function (x) {
         var s = c.slots.filter(function (z) { return z.key === x.target; })[0];
         p += '<tr><td>' + esc(x.resp.disp) + '</td><td>Slot ' + esc(s.label) + ' doppelt gewählt, bereits vergeben an ' + esc(x.takenBy.disp) + '</td><td><select data-resolve="' + esc(x.resp.id) + '">' + opts() + '</select></td></tr>';
       });
       c.unmatched.forEach(function (r) {
-        p += '<tr><td>' + esc(r.disp) + '</td><td>' + esc(r.reason) + (r.slotText ? ': „' + esc(r.slotText) + '“' : '') + '</td><td><select data-resolve="' + esc(r.id) + '">' + opts() + '</select></td></tr>';
+        p += '<tr><td>' + esc(r.disp) + '</td><td>' + esc(r.reason) + (r.slotText && S.mode !== 'wish' ? ': „' + esc(r.slotText) + '“' : '') + '</td><td><select data-resolve="' + esc(r.id) + '">' + opts() + '</select></td></tr>';
       });
       p += '</table></div>';
     }
@@ -549,7 +622,7 @@ var PAGE = [
       if (s.day !== last) { h += '<tr class="dayhead"><td colspan="3">' + esc(longDate(s.date)) + '</td></tr>'; last = s.day; }
       var r = c.assign[s.key], dup = r && r.name && c.names[r.name.toLowerCase()] > 1;
       h += '<tr><td>' + s.start + ' – ' + s.end + '</td><td><input type="text" data-name="' + esc(s.key) + '" value="' + esc(slotName(c, s.key)) + '">' +
-        (dup ? '<span class="badge">mehrfach angemeldet</span>' : '') + '</td><td><input type="text" data-note="' + esc(s.key) + '" value="' + esc(S.notes[s.key] || '') + '"></td></tr>';
+        (dup ? '<span class="badge">mehrfach angemeldet</span>' : '') + (r && r.favKey && r.favKey === s.key ? '<span class="badge" style="background:var(--ok-bg);color:var(--ok)">Lieblingstermin</span>' : '') + '</td><td><input type="text" data-note="' + esc(s.key) + '" value="' + esc(S.notes[s.key] || '') + '"></td></tr>';
     });
     $('assign').innerHTML = h;
   }
@@ -684,7 +757,7 @@ var PAGE = [
     importRows(rows);
   });
   $('clearImport').addEventListener('click', function () {
-    S.table = null; S.manual = {}; S.names = {}; S.notes = {}; S.map = defaults().map; $('paste').value = ''; save(); renderAll();
+    S.table = null; S.manual = {}; S.names = {}; S.notes = {}; S.map = defaults().map; S.mode = 'forms'; S.wishStats = null; $('paste').value = ''; save(); renderAll();
   });
 
   $('mapping').addEventListener('change', function (e) {
@@ -783,11 +856,11 @@ var PAGE = [
     if (!slots.length) { gasMsg('warn', 'Es gibt noch keine Termine. Bitte oben Tage und Zeiten eintragen.'); return; }
     var title = 'Elterngespräche' + (S.klasse.trim() || dateRange() ? ' – ' + [S.klasse.trim(), dateRange()].filter(Boolean).join(', ') : '');
     busy(btn, true); gasMsg('', '');
-    gas({ action: 'publish', title: title, slots: slots.map(function (s) { return { key: s.key, label: s.label }; }) })
+    gas({ action: 'publish', title: title, slots: slots.map(function (s) { return { key: s.key, label: s.label, day: longDate(s.date).replace(/\d{4}$/, ''), time: s.start + '–' + s.end }; }) })
       .then(function (d) {
         gasMsg(d.orphan ? 'warn' : 'ok', d.count + ' Termine veröffentlicht. Die Anmeldung ist offen.' +
           (d.orphan ? ' Achtung: ' + d.orphan + ' bestehende Anmeldung(en) passen nicht mehr zu den neuen Terminen. Sie erscheinen nach dem Laden als „nicht zuordenbar“.' : ' Jetzt den Elternlink verschicken.'));
-        $('gasToggle').textContent = 'Anmeldung schliessen'; S.gasOpen = true; save();
+        $('gasToggle').textContent = 'Anmeldung schliessen'; S.gasOpen = true; S.gasReleased = false; save();
       }).catch(function (e) { gasMsg('warn', esc(e.message)); }).then(function () { busy(btn, false); });
   });
   $('gasToggle').textContent = S.gasOpen === false ? 'Anmeldung wieder öffnen' : 'Anmeldung schliessen';
@@ -800,23 +873,216 @@ var PAGE = [
       gasMsg('ok', d.open ? 'Die Anmeldung ist wieder offen.' : 'Die Anmeldung ist geschlossen. Eltern sehen keine Termine mehr.');
     }).catch(function (e) { gasMsg('warn', esc(e.message)); }).then(function () { busy(btn, false); });
   });
+  /* ---------- Wunschabfrage: optimale Verteilung ---------- */
+  // Reihenfolge der Ziele: 1. möglichst alle platzieren, 2. pro Tag ein dichter Block ohne Lücken, 3. möglichst viele Lieblingstermine.
+  function kuhn(fams, allowed, nS, need) {
+    var matchS = new Array(nS).fill(-1), seen = new Array(nS).fill(0), stamp = 0, cnt = 0;
+    function tryF(f) {
+      var a = fams[f].av;
+      for (var j = 0; j < a.length; j++) {
+        var s = a[j];
+        if (!allowed[s] || seen[s] === stamp) continue;
+        seen[s] = stamp;
+        if (matchS[s] < 0 || tryF(matchS[s])) { matchS[s] = f; return true; }
+      }
+      return false;
+    }
+    for (var f = 0; f < fams.length; f++) {
+      if (need && cnt + fams.length - f < need) break;
+      stamp++; if (tryF(f)) cnt++;
+    }
+    return { cnt: cnt, matchS: matchS };
+  }
+
+  function mcmf(fams, allowed, nS) {
+    var F = fams.length, N = F + nS + 2, src = 0, snk = N - 1, g = [], i;
+    for (i = 0; i < N; i++) g.push([]);
+    function add(u, v, c) { g[u].push({ v: v, cap: 1, cost: c, rev: g[v].length }); g[v].push({ v: u, cap: 0, cost: -c, rev: g[u].length - 1 }); }
+    fams.forEach(function (f, k) { add(src, 1 + k, 0); f.av.forEach(function (s) { if (allowed[s]) add(1 + k, 1 + F + s, s === f.fav ? -1 : 0); }); });
+    for (i = 0; i < nS; i++) if (allowed[i]) add(1 + F + i, snk, 0);
+    var cost = 0;
+    for (;;) {
+      var dist = new Array(N).fill(Infinity), inq = new Array(N).fill(false), pv = new Array(N), pe = new Array(N), q = [src];
+      dist[src] = 0;
+      while (q.length) {
+        var u = q.shift(); inq[u] = false;
+        g[u].forEach(function (e, ei) {
+          if (e.cap > 0 && dist[u] + e.cost < dist[e.v]) { dist[e.v] = dist[u] + e.cost; pv[e.v] = u; pe[e.v] = ei; if (!inq[e.v]) { inq[e.v] = true; q.push(e.v); } }
+        });
+      }
+      if (dist[snk] === Infinity) break;
+      for (var v = snk; v !== src; v = pv[v]) { var e = g[pv[v]][pe[v]]; e.cap--; g[v][e.rev].cap++; }
+      cost += dist[snk];
+    }
+    var res = fams.map(function (f, k) { var hit = g[1 + k].filter(function (e) { return e.v > F && e.v < snk && e.cap === 0; })[0]; return hit ? hit.v - 1 - F : -1; });
+    return { assign: res, fav: -cost };
+  }
+
+  function optimizeWish() {
+    var slots = genSlots(), nS = slots.length, idx = {}, fams = [], t0 = Date.now(), partial = false;
+    slots.forEach(function (s, i) { idx[s.key] = i; });
+    S.table.rows.forEach(function (r, i) {
+      r[3] = '';
+      if (!r[1]) return;
+      var av = String(r[7] || '').split(',').map(function (k) { return idx[k]; })
+        .filter(function (x, j, a) { return x !== undefined && a.indexOf(x) === j; });
+      fams.push({ row: i, av: av, fav: idx[r[8]] !== undefined && av.indexOf(idx[r[8]]) >= 0 ? idx[r[8]] : -1, ts: parseTs(r[0]), order: i });
+    });
+    fams.sort(function (a, b) { if (!isNaN(a.ts) && !isNaN(b.ts) && a.ts !== b.ts) return a.ts - b.ts; return a.order - b.order; });
+    var all = new Array(nS).fill(true), M = kuhn(fams, all, nS).cnt;
+    var days = [];
+    slots.forEach(function (s, i) { if (!days.length || slots[days[days.length - 1][0]].date !== s.date) days.push([]); days[days.length - 1].push(i); });
+    var best = null;
+    if (M > 0) {
+      // Für jedes Zeitfenster eines Tages: wie viele Familien könnten dort überhaupt hin?
+      var opts = days.map(function (d) {
+        var o = [{ a: 0, l: 0, c: 0 }];
+        for (var a = 0; a < d.length; a++) for (var l = 1; a + l <= d.length; l++) {
+          var win = {}; for (var x = 0; x < l; x++) win[d[a + x]] = 1;
+          var c = fams.filter(function (f) { return f.av.some(function (s) { return win[s]; }); }).length;
+          o.push({ a: a, l: l, c: c });
+        }
+        return o;
+      });
+      var maxRest = []; for (var d = days.length - 1; d >= 0; d--) maxRest[d] = days[d].length + (maxRest[d + 1] || 0);
+      for (var gap = 0; gap <= nS - M && !best; gap++) {
+        var target = M + gap, found = [];
+        (function rec(d, left, chosen) {
+          if (found.length >= 400 || Date.now() - t0 > 1500) return;
+          if (d === days.length) {
+            if (left) return;
+            var allowed = new Array(nS).fill(false), end = 0;
+            chosen.forEach(function (w, k) { for (var x = 0; x < w.l; x++) allowed[days[k][w.a + x]] = true; if (w.l) end += w.a + w.l; });
+            if (kuhn(fams, allowed, nS, M).cnt === M) found.push({ allowed: allowed, end: end });
+            return;
+          }
+          if (left > maxRest[d]) return;
+          opts[d].forEach(function (w) { if (w.l <= left && (w.l === 0 || w.c >= w.l - gap)) rec(d + 1, left - w.l, chosen.concat([w])); });
+        })(0, target, []);
+        if (Date.now() - t0 > 1500 && !found.length) { partial = true; break; }
+        found.forEach(function (c) {
+          var m = kuhn(fams, c.allowed, nS), set = [];
+          fams.forEach(function (f, k) { if (m.matchS.indexOf(k) >= 0) set.push(f); });
+          var r = mcmf(set, c.allowed, nS);
+          if (!best || r.fav > best.fav || (r.fav === best.fav && c.end < best.end)) best = { fav: r.fav, end: c.end, set: set, assign: r.assign, gap: gap };
+        });
+      }
+      if (!best && partial) {
+        // Zu viele Möglichkeiten für die vollständige Suche: Zeitfenster schrittweise vom Rand her verkleinern, mehrmals mit Zufallsreihenfolge.
+        var cands = [], minGap = Infinity;
+        for (var run = 0; run < 300 && Date.now() - t0 < 3500; run++) {
+          var win = days.map(function (dd) { return { a: 0, b: dd.length }; }), allowed = new Array(nS).fill(true), moved = true;
+          while (moved) {
+            moved = false;
+            var moves = [];
+            win.forEach(function (w, dd) { if (w.b > w.a) { moves.push([dd, 0]); moves.push([dd, 1]); } });
+            for (var mi = moves.length - 1; mi > 0; mi--) { var rj = Math.floor(Math.random() * (mi + 1)), tmp = moves[mi]; moves[mi] = moves[rj]; moves[rj] = tmp; }
+            for (mi = 0; mi < moves.length && !moved; mi++) {
+              var w = win[moves[mi][0]], sl = moves[mi][1] ? days[moves[mi][0]][w.b - 1] : days[moves[mi][0]][w.a];
+              allowed[sl] = false;
+              if (kuhn(fams, allowed, nS, M).cnt === M) { if (moves[mi][1]) w.b--; else w.a++; moved = true; } else allowed[sl] = true;
+            }
+          }
+          var len = 0, end = 0; win.forEach(function (w) { len += w.b - w.a; if (w.b > w.a) end += w.b; });
+          if (len - M < minGap) { minGap = len - M; cands = []; }
+          if (len - M === minGap && cands.length < 60) cands.push({ allowed: allowed.slice(), end: end });
+        }
+        cands.forEach(function (c) {
+          var m = kuhn(fams, c.allowed, nS), set = fams.filter(function (f, k) { return m.matchS.indexOf(k) >= 0; });
+          var r = mcmf(set, c.allowed, nS);
+          if (!best || r.fav > best.fav || (r.fav === best.fav && c.end < best.end)) best = { fav: r.fav, end: c.end, set: set, assign: r.assign, gap: minGap };
+        });
+      }
+      if (!best) {
+        var m0 = kuhn(fams, all, nS), set0 = fams.filter(function (f, k) { return m0.matchS.indexOf(k) >= 0; }), r0 = mcmf(set0, all, nS);
+        best = { fav: r0.fav, set: set0, assign: r0.assign, gap: null };
+      }
+      best.set.forEach(function (f, k) { if (best.assign[k] >= 0) S.table.rows[f.row][3] = slots[best.assign[k]].label; });
+    }
+    var used = {}; if (best) best.set.forEach(function (f, k) { if (best.assign[k] >= 0) used[best.assign[k]] = 1; });
+    var gaps = 0; days.forEach(function (d) { var u = d.filter(function (i) { return used[i]; }); if (u.length) gaps += (d.indexOf(u[u.length - 1]) - d.indexOf(u[0]) + 1) - u.length; });
+    S.manual = {};
+    S.wishStats = { placed: M, total: fams.length, fav: best ? best.fav : 0, favTotal: fams.filter(function (f) { return f.fav >= 0; }).length, gaps: gaps, partial: partial };
+  }
+
+  function loadWish(rows) {
+    var slots = genSlots(), byKey = {};
+    slots.forEach(function (s) { byKey[s.key] = s; });
+    function lbl(k) { return byKey[k] ? byKey[k].label : ''; }
+    S.mode = 'wish';
+    S.table = {
+      headers: ['Zeitstempel', 'Name des Kindes', 'Name der Eltern', 'Zugeteilter Termin', 'Bemerkung', 'Mögliche Termine', 'Lieblingstermin', 'Termin-Keys', 'Lieblings-Key'],
+      rows: rows.map(function (r) {
+        r = r.map(function (x) { return String(x == null ? '' : x).trim(); });
+        return [r[0], r[1], r[2], '', r[3], r[4].split(',').map(lbl).filter(Boolean).join(' / '), lbl(r[5]), r[4], r[5]];
+      })
+    };
+    S.map = { ts: 0, name: 1, extra: 2, slot: 3 };
+    S.names = {}; S.notes = {};
+    optimizeWish();
+    var keyOf = {}; slots.forEach(function (s) { keyOf[s.label] = s.key; });
+    S.table.rows.forEach(function (r) { if (r[4] && keyOf[r[3]]) S.notes[keyOf[r[3]]] = r[4]; });
+    save(); renderAll();
+  }
+
+  function wishSummary() {
+    var w = S.wishStats; if (!w) return '';
+    return 'Verteilt: ' + w.placed + ' von ' + w.total + ' Kindern haben einen Termin. Lieblingstermin erfüllt: ' + w.fav + ' von ' + w.favTotal + '. Lücken im Plan: ' + w.gaps + '.' +
+      (w.partial ? ' (Sehr viele Kombinationen: Der Plan ist gut, aber nicht garantiert der bestmögliche.)' : '') +
+      (w.placed < w.total ? ' Wer keinen Termin hat, steht unten in der Liste. Bitte diese Eltern direkt kontaktieren.' : '');
+  }
+
   $('gasLoad').addEventListener('click', function () {
     var btn = this;
+    if (S.gasReleased && !confirm('Die Termine sind schon freigegeben. Neu laden berechnet den Plan neu, und Eltern sehen erst nach erneutem Freigeben die Änderungen. Fortfahren?')) return;
     busy(btn, true);
     gas({ action: 'list' }).then(function (d) {
-      var head = ['Zeitstempel', 'Name des Kindes', 'Name der Eltern', 'Termin', 'Bemerkung', 'Termin-Key'];
-      var rows = d.rows.map(function (r) { return r.map(function (x) { return String(x == null ? '' : x).trim(); }); });
-      var same = S.table && S.table.headers.join('|') === head.join('|');
-      var keep = same ? { manual: S.manual, names: S.names, notes: S.notes } : null;
-      S.table = { headers: head, rows: rows };
-      S.map = { ts: 0, name: 1, extra: 2, slot: 3 };
-      S.manual = keep ? keep.manual : {}; S.names = keep ? keep.names : {}; S.notes = keep ? keep.notes : {};
-      var slots = genSlots(), byKey = {};
-      slots.forEach(function (s) { byKey[s.key] = s; });
-      rows.forEach(function (r) { if (r[4] && byKey[r[5]] && !S.notes[r[5]]) S.notes[r[5]] = r[4]; });
-      S.gasOpen = d.open; save(); renderAll();
+      S.gasOpen = d.open; S.gasReleased = d.released; S.wishDemo = false;
+      loadWish(d.rows);
       $('gasToggle').textContent = d.open ? 'Anmeldung schliessen' : 'Anmeldung wieder öffnen';
-      gasMsg('ok', rows.length + ' Anmeldung(en) geladen, Stand ' + new Date().toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' }) + ' Uhr. Die Zuordnung steht unten in Schritt 4 und im Aushang.');
+      gasMsg(S.wishStats.placed < S.wishStats.total ? 'warn' : 'ok', esc(d.rows.length + ' Anmeldung(en) geladen, Stand ' + new Date().toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' }) + ' Uhr. ' + wishSummary()) + ' Der Plan steht in Schritt 4 und im Aushang.');
+    }).catch(function (e) { gasMsg('warn', esc(e.message)); }).then(function () { busy(btn, false); });
+  });
+  $('wishDemo').addEventListener('click', function () {
+    var slots = genSlots();
+    if (slots.length < 4) { gasMsg('warn', 'Bitte zuerst oben Tage und Zeiten eintragen.'); return; }
+    var names = ['Lena Meier', 'Noah Keller', 'Mia Brunner', 'Elias Frei', 'Sara Gerber', 'Luca Huber', 'Emma Weber', 'Jonas Steiner', 'Anna Fischer', 'Leon Baumann', 'Lara Schmid', 'Finn Moser', 'Nina Roth', 'Tim Graf', 'Julia Wyss', 'David Berger', 'Alina Suter', 'Marco Widmer', 'Sophie Egger', 'Ben Zimmermann'];
+    var days = {}; slots.forEach(function (s) { (days[s.date] = days[s.date] || []).push(s); });
+    var dl = Object.keys(days);
+    var rows = names.slice(0, Math.min(20, Math.floor(slots.length * 0.75))).map(function (n, i) {
+      var keys = [];
+      dl.forEach(function (d) {
+        if (dl.length > 1 && Math.random() < 0.35) return;
+        var list = days[d], a = Math.floor(Math.random() * list.length), l = 2 + Math.floor(Math.random() * Math.min(8, list.length));
+        list.slice(a, a + l).forEach(function (s) { keys.push(s.key); });
+      });
+      if (!keys.length) keys.push(slots[Math.floor(Math.random() * slots.length)].key);
+      var fav = Math.random() < 0.7 ? keys[Math.floor(Math.random() * keys.length)] : '';
+      return ['05.11.2026 ' + pad(8 + Math.floor(i / 4)) + ':' + pad((i * 13) % 60) + ':00', n, 'Familie ' + n.split(' ')[1], i % 7 === 3 ? 'Übersetzung gewünscht' : '', keys.join(','), fav];
+    });
+    loadWish(rows); S.wishDemo = true; save();
+    gasMsg('ok', esc('Testdaten erzeugt (nichts wurde an Google geschickt). ' + wishSummary()));
+  });
+  $('gasRelease').addEventListener('click', function () {
+    var btn = this, c = compute(), list = [];
+    if (!S.table || !c.total) { gasMsg('warn', 'Es gibt noch keinen Plan. Bitte zuerst „Anmeldungen laden und verteilen“.'); return; }
+    if (S.wishDemo) { gasMsg('warn', 'Das sind Testdaten. Bitte zuerst echte Anmeldungen laden.'); return; }
+    c.slots.forEach(function (s) { var r = c.assign[s.key]; if (r && r.name) list.push([r.name, s.label, s.key]); });
+    var open = c.unmatched.length + c.conflicts.length;
+    if (!confirm(list.length + ' Termine freigeben? Die Anmeldung wird dabei geschlossen.' + (open ? ' ' + open + ' Kind(er) haben noch keinen Termin.' : ''))) return;
+    busy(btn, true);
+    gas({ action: 'release', assign: list }).then(function (d) {
+      S.gasReleased = true; S.gasOpen = false; save();
+      $('gasToggle').textContent = 'Anmeldung wieder öffnen';
+      gasMsg('ok', d.count + ' Termine freigegeben. Die Eltern sehen ihren Termin jetzt über den Elternlink, wenn sie den Namen des Kindes eingeben.');
+    }).catch(function (e) { gasMsg('warn', esc(e.message)); }).then(function () { busy(btn, false); });
+  });
+  $('gasUnrelease').addEventListener('click', function () {
+    var btn = this;
+    busy(btn, true);
+    gas({ action: 'unrelease' }).then(function () {
+      S.gasReleased = false; save();
+      gasMsg('ok', 'Freigabe zurückgenommen. Eltern sehen keine Termine mehr. Die Anmeldung bleibt geschlossen, bis du sie wieder öffnest.');
     }).catch(function (e) { gasMsg('warn', esc(e.message)); }).then(function () { busy(btn, false); });
   });
 
