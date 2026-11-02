@@ -32,8 +32,6 @@
   .msg { padding: 8px 10px; border-radius: 6px; margin: 8px 0; font-size: .9rem; }
   .msg.warn { background: var(--warn-bg); color: var(--warn); }
   .msg.ok { background: var(--ok-bg); color: var(--ok); }
-  .drop { border: 2px dashed var(--line); border-radius: 10px; padding: 18px; text-align: center; color: var(--muted); }
-  .drop.over { border-color: var(--accent); background: #eef4fd; }
   table.data { width: 100%; border-collapse: collapse; font-size: .9rem; }
   table.data th, table.data td { border-bottom: 1px solid var(--line); padding: 4px 6px; text-align: left; vertical-align: middle; }
   table.data input[type=text] { width: 100%; }
@@ -66,7 +64,7 @@
 <main>
   <header class="noprint">
     <h1>Elterngespräche organisieren</h1>
-    <p class="lead">Slots erzeugen, ins Formular kopieren, Antworten hochladen, Aushang drucken. Alle Daten bleiben in diesem Browser.</p>
+    <p class="lead">Termine festlegen, Eltern online wählen lassen, Plan automatisch erstellen, Aushang drucken.</p>
   </header>
 
   <!-- 1. Konfiguration -->
@@ -83,15 +81,7 @@
     <div id="slotInfo"></div>
   </section>
 
-  <!-- 2. Export -->
-  <section class="card noprint">
-    <h2><span class="step">2</span>Alternative: Slots für Google Forms oder Microsoft Forms</h2>
-    <p class="hint">Im Formular eine Frage „Terminwunsch“ (Auswahl oder Dropdown) anlegen und die Zeilen als Optionen einfügen. Google Forms: Optionen einfügen mit Strg+V in das erste Optionsfeld. Microsoft Forms: „Optionen im Stapel einfügen“ im Menü der Frage.</p>
-    <div class="toolbar" style="margin:0 0 8px"><button class="primary" id="copySlots">Slots für Formular kopieren</button><span id="copyMsg" class="hint"></span></div>
-    <textarea id="slotText" rows="6" readonly></textarea>
-  </section>
-
-  <!-- 2b. Online-Anmeldung -->
+  <!-- 2. Online-Anmeldung -->
   <section class="card noprint" id="online">
     <h2><span class="step">2</span>Online-Anmeldung über Google-Tabelle</h2>
     <p class="hint">Eltern kreuzen über einen Link alle Termine an, an denen sie können, und wählen auf Wunsch einen Lieblingstermin. Das Tool verteilt danach so, dass alle einen Termin haben, jeder Tag ein dichter Block ohne Lücken ist und möglichst viele Lieblingstermine passen. Nach der Freigabe sehen die Eltern ihren Termin über denselben Link.</p>
@@ -131,29 +121,18 @@
     <div id="gasMsg"></div>
   </section>
 
-  <!-- 3. Import -->
+  <!-- 3. Zuordnung prüfen -->
   <section class="card noprint">
-    <h2><span class="step">3</span>Antworten importieren (Forms) und offene Fälle</h2>
-    <div class="drop" id="drop">CSV- oder Excel-Datei hierher ziehen oder <label style="display:inline;color:var(--accent);cursor:pointer;text-decoration:underline">Datei wählen<input id="file" type="file" accept=".csv,.tsv,.txt,.xlsx,.xls" hidden></label></div>
-    <p class="hint">Oder CSV-Text einfügen (inklusive Kopfzeile):</p>
-    <textarea id="paste" rows="3" placeholder="Zeitstempel;Name des Kindes;Name der Eltern;Terminwunsch"></textarea>
-    <div class="toolbar"><button id="applyPaste">Eingefügten Text auswerten</button><button id="demoData">Testdaten erzeugen (20 Beispiele)</button><button id="clearImport" class="danger">Antworten löschen</button></div>
-    <div id="importMsg"></div>
-    <div id="mapping"></div>
+    <h2><span class="step">3</span>Plan prüfen und ergänzen</h2>
     <div id="problems"></div>
-  </section>
-
-  <!-- 4. Zuordnung bearbeiten -->
-  <section class="card noprint">
-    <h2><span class="step">4</span>Zuordnung prüfen und ergänzen</h2>
     <p class="hint">Namen und Notizen lassen sich hier direkt ändern. Änderungen erscheinen sofort im Aushang.</p>
     <div class="scroll"><table class="data" id="assign"></table></div>
   </section>
 
-  <!-- 5. Aushang -->
+  <!-- 4. Aushang -->
   <section class="card" id="sheetCard">
     <div class="noprint">
-      <h2><span class="step">5</span>Aushang</h2>
+      <h2><span class="step">4</span>Aushang</h2>
       <div class="toolbar" style="margin:0 0 6px"><button class="primary" id="printBtn">Aushang drucken</button></div>
       <p class="hint">Der Aushang passt automatisch auf eine A4-Seite. Im Druckdialog „Kopf- und Fußzeilen“ ausschalten und Hochformat wählen.</p>
     </div>
@@ -162,7 +141,7 @@
 
   <footer class="noprint hint" style="text-align:center;margin-bottom:24px">
     <button id="resetAll" class="danger">Alles zurücksetzen</button>
-    <div style="margin-top:8px">Version 1.4</div>
+    <div style="margin-top:8px">Version 1.5</div>
   </footer>
 </main>
 
@@ -399,7 +378,7 @@ var PAGE = [
       klasse: '', slotLen: 15, buffer: 0, maxPerDay: 0,
       days: [{ date: '', start: '16:00', end: '19:30' }],
       table: null,          // { headers: [], rows: [[]] }
-      map: { name: -1, extra: -1, slot: -1, ts: -1 },
+      map: { ts: 0, name: 1, extra: 2, slot: 3 },
       manual: {},           // Antwort-ID -> Slot-Key | 'skip'
       names: {},            // Slot-Key -> Name (überschrieben)
       notes: {}             // Slot-Key -> Notiz
@@ -410,7 +389,7 @@ var PAGE = [
   function load() {
     try {
       var raw = localStorage.getItem(KEY);
-      if (raw) return Object.assign(defaults(), JSON.parse(raw));
+      if (raw) { var st = Object.assign(defaults(), JSON.parse(raw)); if (st.mode !== 'wish') { st.table = null; st.manual = {}; st.map = defaults().map; } return st; }
     } catch (e) {}
     return defaults();
   }
@@ -447,57 +426,6 @@ var PAGE = [
     return slots;
   }
 
-  /* ---------- Import-Parser ---------- */
-  function parseCSV(text) {
-    text = String(text).replace(/^﻿/, '');
-    var first = text.split(/\r?\n/)[0] || '', q = false, cnt = { ';': 0, ',': 0, '\t': 0 }, i, c;
-    for (i = 0; i < first.length; i++) { c = first[i]; if (c === '"') q = !q; else if (!q && cnt[c] !== undefined) cnt[c]++; }
-    var delim = cnt[';'] >= cnt[','] && cnt[';'] >= cnt['\t'] ? ';' : (cnt['\t'] >= cnt[','] ? '\t' : ',');
-    if (!cnt[';'] && !cnt[','] && !cnt['\t']) delim = ';';
-    var rows = [], row = [], cell = '';
-    q = false;
-    for (i = 0; i < text.length; i++) {
-      c = text[i];
-      if (q) {
-        if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += c;
-      } else if (c === '"') q = true;
-      else if (c === delim) { row.push(cell); cell = ''; }
-      else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
-      else cell += c;
-    }
-    if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
-    return rows.filter(function (r) { return r.some(function (x) { return String(x).trim() !== ''; }); });
-  }
-
-  function setTable(rows) {
-    if (!rows.length) throw new Error('Keine Zeilen gefunden.');
-    var width = Math.max.apply(null, rows.map(function (r) { return r.length; }));
-    rows = rows.map(function (r) { r = r.map(function (x) { return String(x == null ? '' : x).trim(); }); while (r.length < width) r.push(''); return r; });
-    S.table = { headers: rows[0], rows: rows.slice(1) };
-    S.manual = {}; S.names = {}; S.notes = {}; S.mode = 'forms'; S.wishStats = null;
-    S.map = detect(S.table);
-    save();
-  }
-
-  function detect(t) {
-    var slots = genSlots(), map = { name: -1, extra: -1, slot: -1, ts: -1 }, h = t.headers, n = h.length, j;
-    function find(re, skip) { for (var k = 0; k < n; k++) if (skip.indexOf(k) < 0 && re.test(h[k])) return k; return -1; }
-    map.ts = find(/zeitstempel|timestamp|abschlusszeit|fertigstellung|startzeit|completion|start time/i, []);
-    var best = 0;
-    for (j = 0; j < n; j++) {
-      if (j === map.ts) continue;
-      var score = t.rows.filter(function (r) { return parseSlotText(r[j], slots) !== null || /\d{1,2}\.\d{1,2}\.?.*\d{1,2}[:.]\d{2}/.test(r[j]); }).length;
-      if (score > best) { best = score; map.slot = j; }
-    }
-    if (map.slot < 0) map.slot = find(/termin|slot|zeit|uhr/i, [map.ts]);
-    var skip = [map.ts, map.slot];
-    map.name = find(/sch(ü|ue)ler|kind/i, skip);
-    if (map.name < 0) map.name = find(/name/i, skip);
-    if (map.name < 0) for (j = 0; j < n; j++) if (skip.indexOf(j) < 0) { map.name = j; break; }
-    map.extra = find(/eltern|mutter|vater|erziehung/i, skip.concat([map.name]));
-    return map;
-  }
-
   function parseTs(s) {
     s = String(s || '').trim(); if (!s) return NaN;
     var m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})[ T,]*(\d{1,2})?:?(\d{2})?:?(\d{2})?/.exec(s);
@@ -507,29 +435,16 @@ var PAGE = [
     var d = Date.parse(s.replace(' ', 'T')); return isNaN(d) ? NaN : d;
   }
 
-  function parseSlotText(text, slots) {
-    text = String(text || ''); if (!text.trim()) return null;
-    var exact = slots.filter(function (s) { return s.label === text.trim(); });
-    if (exact.length) return exact[0].key;
-    var dm = /(\d{1,2})\.\s?(\d{1,2})\./.exec(text), rest = dm ? text.replace(dm[0], ' ') : text;
-    var tm = /(\d{1,2})\s?[:h.]\s?(\d{2})/.exec(rest);
-    if (!tm) return null;
-    var start = pad(+tm[1]) + ':' + tm[2];
-    var cands = slots.filter(function (s) { return s.start === start && (!dm || shortDate(s.date) === pad(+dm[1]) + '.' + pad(+dm[2]) + '.'); });
-    if (!dm) { var dates = {}; slots.forEach(function (s) { dates[s.date] = 1; }); if (Object.keys(dates).length > 1) return null; }
-    return cands.length ? cands[0].key : null;
-  }
-
   /* ---------- Zuordnung ---------- */
   function compute() {
-    var slots = genSlots(), keys = {}, res = { slots: slots, assign: {}, conflicts: [], unmatched: [], skipped: 0, names: {}, total: 0 };
-    slots.forEach(function (s) { keys[s.key] = s; });
+    var slots = genSlots(), keys = {}, byLabel = {}, res = { slots: slots, assign: {}, conflicts: [], unmatched: [], skipped: 0, names: {}, total: 0 };
+    slots.forEach(function (s) { keys[s.key] = s; byLabel[s.label] = s.key; });
     if (!S.table) return res;
     var m = S.map, resp = [];
     S.table.rows.forEach(function (r, i) {
       var name = m.name >= 0 ? r[m.name] : '', extra = m.extra >= 0 ? r[m.extra] : '', st = m.slot >= 0 ? r[m.slot] : '';
       if (!name && !extra && !st) return;
-      resp.push({ id: String(i), order: i, ts: m.ts >= 0 ? parseTs(r[m.ts]) : NaN, name: name, extra: extra, slotText: st, alt: S.mode === 'wish' ? r[5] : '', favKey: S.mode === 'wish' ? r[8] : '' });
+      resp.push({ id: String(i), order: i, ts: m.ts >= 0 ? parseTs(r[m.ts]) : NaN, name: name, extra: extra, slotText: st, alt: r[5], favKey: r[8] });
     });
     res.total = resp.length;
     function disp(r) { return r.name + (r.extra ? ' (' + r.extra + ')' : ''); }
@@ -540,8 +455,8 @@ var PAGE = [
       var mv = S.manual[r.id];
       if (mv === 'skip') { res.skipped++; return; }
       if (mv && keys[mv]) { r.target = mv; manual.push(r); return; }
-      r.target = parseSlotText(r.slotText, slots);
-      if (!r.target) { r.reason = S.mode === 'wish' ? 'Keiner der angegebenen Termine war noch frei. Angegeben: ' + (r.alt || 'keine gültigen Termine') : r.slotText ? 'Slot nicht erkannt oder nicht im Plan (Limit pro Tag oder Zeitraum)' : 'Kein Slot angegeben'; res.unmatched.push(r); return; }
+      r.target = byLabel[r.slotText] || null;
+      if (!r.target) { r.reason = 'Keiner der angegebenen Termine war noch frei. Angegeben: ' + (r.alt || 'keine gültigen Termine'); res.unmatched.push(r); return; }
       auto.push(r);
     });
     manual.concat(auto).forEach(function (r) {
@@ -573,22 +488,12 @@ var PAGE = [
     if (bad.length) h += '<div class="msg warn">Bitte bei jedem Tag Datum, Von und Bis eintragen (Ende nach Beginn).</div>';
     h += '<div class="hint"><strong>Gesamt: ' + slots.length + ' Slots</strong></div>';
     $('slotInfo').innerHTML = h;
-    $('slotText').value = slots.map(function (s) { return s.label; }).join('\n');
   }
 
-  function renderImport(c) {
-    var t = S.table, h = '';
-    if (!t) { $('mapping').innerHTML = ''; $('problems').innerHTML = ''; return; }
-    function sel(field, label, optional) {
-      var o = optional ? '<option value="-1">(keine)</option>' : '';
-      t.headers.forEach(function (x, i) { o += '<option value="' + i + '"' + (S.map[field] === i ? ' selected' : '') + '>' + esc(x || 'Spalte ' + (i + 1)) + '</option>'; });
-      return '<div><label>' + label + '</label><select data-map="' + field + '">' + o + '</select></div>';
-    }
-    h += '<div class="row" style="margin-top:10px">' + sel('name', 'Schülername', false) + sel('extra', 'Eltern (optional)', true) + sel('slot', 'Gewählter Slot', false) + sel('ts', 'Zeitstempel (optional)', true) + '</div>';
-    $('mapping').innerHTML = S.mode === 'wish' ? '' : h;
-
-    var assigned = Object.keys(c.assign).length, p = S.mode === 'wish' && S.wishStats ? '<div class="msg ok">' + esc(wishSummary()) + '</div>' : '';
-    p += '<div class="msg ' + (c.conflicts.length || c.unmatched.length ? 'warn' : 'ok') + '">' + c.total + ' Antworten, ' + assigned + ' zugeordnet' +
+  function renderProblems(c) {
+    if (!S.table) { $('problems').innerHTML = ''; return; }
+    var assigned = Object.keys(c.assign).length, p = S.wishStats ? '<div class="msg ok">' + esc(wishSummary()) + '</div>' : '';
+    if (c.conflicts.length || c.unmatched.length || !S.wishStats) p += '<div class="msg ' + (c.conflicts.length || c.unmatched.length ? 'warn' : 'ok') + '">' + c.total + ' Antworten, ' + assigned + ' zugeordnet' +
       (c.conflicts.length ? ', ' + c.conflicts.length + ' Konflikt(e)' : '') + (c.unmatched.length ? ', ' + c.unmatched.length + ' nicht zuordenbar' : '') +
       (c.skipped ? ', ' + c.skipped + ' verworfen' : '') + '.</div>';
     var free = c.slots.filter(function (s) { return !c.assign[s.key]; });
@@ -596,14 +501,13 @@ var PAGE = [
       return '<option value="">Slot wählen …</option>' + free.map(function (s) { return '<option value="' + esc(s.key) + '">' + esc(s.label) + '</option>'; }).join('') + '<option value="skip">Verwerfen</option>';
     }
     if (c.conflicts.length || c.unmatched.length) {
-      if (S.mode !== 'wish') p += '<div class="toolbar" style="margin:0 0 8px"><button class="primary" id="autoDist">Rest automatisch verteilen</button><span class="hint">Freier Slot am nächsten zur Wunschzeit, früher Antwortende zuerst.</span></div>';
       p += '<div class="scroll"><table class="data"><tr><th>Name</th><th>Problem</th><th>Neu zuweisen</th></tr>';
       c.conflicts.forEach(function (x) {
         var s = c.slots.filter(function (z) { return z.key === x.target; })[0];
         p += '<tr><td>' + esc(x.resp.disp) + '</td><td>Slot ' + esc(s.label) + ' doppelt gewählt, bereits vergeben an ' + esc(x.takenBy.disp) + '</td><td><select data-resolve="' + esc(x.resp.id) + '">' + opts() + '</select></td></tr>';
       });
       c.unmatched.forEach(function (r) {
-        p += '<tr><td>' + esc(r.disp) + '</td><td>' + esc(r.reason) + (r.slotText && S.mode !== 'wish' ? ': „' + esc(r.slotText) + '“' : '') + '</td><td><select data-resolve="' + esc(r.id) + '">' + opts() + '</select></td></tr>';
+        p += '<tr><td>' + esc(r.disp) + '</td><td>' + esc(r.reason) + '' + '</td><td><select data-resolve="' + esc(r.id) + '">' + opts() + '</select></td></tr>';
       });
       p += '</table></div>';
     }
@@ -664,7 +568,7 @@ var PAGE = [
 
   function renderAll() {
     var c = compute();
-    renderSlots(); renderImport(c); renderAssign(c); renderSheet(c);
+    renderSlots(); renderProblems(c); renderAssign(c); renderSheet(c);
   }
 
   /* ---------- Events ---------- */
@@ -691,113 +595,15 @@ var PAGE = [
   function copyText(text, msgEl, area) {
     function done(ok) { msgEl.textContent = ok ? 'In die Zwischenablage kopiert (' + text.split('\n').length + ' Zeilen).' : 'Kopieren nicht möglich. Bitte Text im Feld markieren und mit Strg+C kopieren.'; }
     function fallback() {
-      var ta = area || $('slotText'); ta.focus(); ta.select();
+      var ta = area; ta.focus(); ta.select();
       var ok = false; try { ok = document.execCommand('copy'); } catch (e) {}
       done(ok);
     }
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { done(true); }, fallback); else fallback();
   }
-  $('copySlots').addEventListener('click', function () {
-    var t = $('slotText').value;
-    if (!t) { $('copyMsg').textContent = 'Keine Slots vorhanden.'; return; }
-    copyText(t, $('copyMsg'));
-  });
-
-  function importRows(rows) {
-    try { setTable(rows); $('importMsg').innerHTML = ''; renderAll(); }
-    catch (e) { $('importMsg').innerHTML = '<div class="msg warn">' + esc(e.message) + '</div>'; }
-  }
-  function loadScript(src) {
-    return new Promise(function (res, rej) { var s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = function () { rej(new Error('Excel-Bibliothek konnte nicht geladen werden (offline?). Bitte die Datei als CSV speichern.')); }; document.head.appendChild(s); });
-  }
-  function handleFile(f) {
-    if (!f) return;
-    if (/\.(xlsx|xls)$/i.test(f.name)) {
-      var fr = new FileReader();
-      fr.onload = function () {
-        var p = window.XLSX ? Promise.resolve() : loadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
-        p.then(function () {
-          var wb = XLSX.read(fr.result, { type: 'array', cellDates: true });
-          var ws = wb.Sheets[wb.SheetNames[0]];
-          var rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, cellDates: true, defval: '' }).map(function (r) {
-            return r.map(function (v) {
-              if (v instanceof Date) return v.getFullYear() + '-' + pad(v.getMonth() + 1) + '-' + pad(v.getDate()) + ' ' + pad(v.getHours()) + ':' + pad(v.getMinutes()) + ':' + pad(v.getSeconds());
-              return v;
-            });
-          }).filter(function (r) { return r.some(function (x) { return String(x).trim() !== ''; }); });
-          importRows(rows);
-        }).catch(function (e) { $('importMsg').innerHTML = '<div class="msg warn">' + esc(e.message) + '</div>'; });
-      };
-      fr.readAsArrayBuffer(f);
-    } else {
-      var r = new FileReader();
-      r.onload = function () { importRows(parseCSV(r.result)); };
-      r.readAsText(f, 'utf-8');
-    }
-  }
-  $('file').addEventListener('change', function () { handleFile(this.files[0]); this.value = ''; });
-  var drop = $('drop');
-  ['dragenter', 'dragover'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('over'); }); });
-  ['dragleave', 'drop'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); }); });
-  drop.addEventListener('drop', function (e) { handleFile(e.dataTransfer.files[0]); });
-  window.addEventListener('dragover', function (e) { e.preventDefault(); });
-  window.addEventListener('drop', function (e) { e.preventDefault(); });
-  $('applyPaste').addEventListener('click', function () { var v = $('paste').value; if (v.trim()) importRows(parseCSV(v)); });
-  $('demoData').addEventListener('click', function () {
-    var slots = genSlots();
-    if (slots.length < 4) { $('importMsg').innerHTML = '<div class="msg warn">Bitte zuerst oben Tage und Zeiten eintragen.</div>'; return; }
-    var names = ['Lena Meier', 'Noah Keller', 'Mia Brunner', 'Elias Frei', 'Sara Gerber', 'Luca Huber', 'Emma Weber', 'Jonas Steiner', 'Anna Fischer', 'Leon Baumann', 'Lara Schmid', 'Finn Moser', 'Nina Roth', 'Tim Graf', 'Julia Wyss', 'David Berger', 'Alina Suter', 'Marco Widmer', 'Sophie Egger', 'Ben Zimmermann'];
-    var pool = slots.slice(), pick = [];
-    while (pick.length < 20) { if (!pool.length) pool = slots.slice(); pick.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0].label); }
-    pick[5] = pick[2]; pick[14] = pick[9];
-    var last = slots[slots.length - 1];
-    pick[17] = WD[wd(last.date)] + ' ' + shortDate(last.date) + ', ' + fromMin(toMin(last.end) + 60) + '–' + fromMin(toMin(last.end) + 75) + ' Uhr';
-    var rows = [['Zeitstempel', 'Name des Kindes', 'Name der Eltern', 'Terminwunsch']];
-    names.forEach(function (n, i) { rows.push(['05.11.2026 ' + pad(8 + Math.floor(i / 4)) + ':' + pad((i * 13) % 60) + ':00', n, 'Familie ' + n.split(' ')[1], pick[i]]); });
-    importRows(rows);
-  });
-  $('clearImport').addEventListener('click', function () {
-    S.table = null; S.manual = {}; S.names = {}; S.notes = {}; S.map = defaults().map; S.mode = 'forms'; S.wishStats = null; $('paste').value = ''; save(); renderAll();
-  });
-
-  $('mapping').addEventListener('change', function (e) {
-    var f = e.target.dataset.map; if (!f) return;
-    S.map[f] = +e.target.value; S.manual = {}; save(); renderAll();
-  });
   $('problems').addEventListener('change', function (e) {
     var id = e.target.dataset.resolve; if (id === undefined || !e.target.value) return;
     S.manual[id] = e.target.value; save(); renderAll();
-  });
-  function wishOf(text, slots) {
-    var dm = /(\d{1,2})\.\s?(\d{1,2})\./.exec(text || ''), rest = dm ? text.replace(dm[0], ' ') : String(text || '');
-    var tm = /(\d{1,2})\s?[:h.]\s?(\d{2})/.exec(rest);
-    if (!tm) return null;
-    var date = null;
-    if (dm) slots.forEach(function (s) { if (!date && shortDate(s.date) === pad(+dm[1]) + '.' + pad(+dm[2]) + '.') date = s.date; });
-    return { date: date, min: +tm[1] * 60 + +tm[2], label: (dm ? pad(+dm[1]) + '.' + pad(+dm[2]) + '. ' : '') + pad(+tm[1]) + ':' + tm[2] };
-  }
-  $('problems').addEventListener('click', function (e) {
-    if (e.target.id !== 'autoDist') return;
-    var c = compute(), slots = c.slots, free = slots.filter(function (s) { return !c.assign[s.key]; });
-    var todo = c.conflicts.map(function (x) { return { r: x.resp, wish: wishOf(x.resp.slotText, slots) }; })
-      .concat(c.unmatched.map(function (r) { return { r: r, wish: wishOf(r.slotText, slots) }; }));
-    todo.sort(function (a, b) { var x = a.r, y = b.r; if (!isNaN(x.ts) && !isNaN(y.ts) && x.ts !== y.ts) return x.ts - y.ts; return x.order - y.order; });
-    var done = 0, left = 0;
-    todo.forEach(function (t) {
-      if (!free.length) { left++; return; }
-      var w = t.wish, best = free[0];
-      if (w) {
-        var score = function (s) { return [w.date && s.date !== w.date ? 1 : 0, Math.abs(toMin(s.start) - w.min), toMin(s.start)]; };
-        best = free.slice().sort(function (a, b) { var x = score(a), y = score(b); return x[0] - y[0] || x[1] - y[1] || x[2] - y[2] || (a.key < b.key ? -1 : 1); })[0];
-        var note = 'verschoben, Wunsch war ' + w.label;
-        S.notes[best.key] = S.notes[best.key] ? S.notes[best.key] + '; ' + note : note;
-      }
-      S.manual[t.r.id] = best.key;
-      free.splice(free.indexOf(best), 1);
-      done++;
-    });
-    save(); renderAll();
-    $('importMsg').innerHTML = '<div class="msg ' + (left ? 'warn' : 'ok') + '">' + done + ' Anmeldung(en) verteilt' + (left ? ', ' + left + ' ohne freien Slot (Warteliste)' : '') + '. Bitte die mit „verschoben“ markierten Eltern informieren.</div>';
   });
   $('assign').addEventListener('input', function (e) {
     var t = e.target;
